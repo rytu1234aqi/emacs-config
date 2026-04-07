@@ -1,0 +1,107 @@
+# ------------------------------
+# Emacs 临时文件 / 备份文件
+# ------------------------------
+*~
+\#*\#
+.\#*
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# ------------------------------
+# Emacs 编译产物
+# ------------------------------
+*.elc
+eln-cache/
+
+# ------------------------------
+# 自动保存 / 会话 / 历史
+# ------------------------------
+auto-save-list/
+tramp
+eshell/history
+eshell/lastdir
+history
+recentf
+places
+savehist
+bookmarks
+url/cache/
+var/
+transient/
+prescient-save.el
+projectile-bookmarks.eld
+smex-items
+company-statistics-cache.el
+request/
+
+# ------------------------------
+# Org-mode 生成文件
+# ------------------------------
+.org-id-locations
+*_archive
+
+# ------------------------------
+# 包管理目录（通常不上传）
+# ------------------------------
+elpa/
+straight/build/
+straight/repos/
+quelpa/
+package-quickstart.el
+.cache/
+.paquel-cache/
+
+# ------------------------------
+# LSP / 编程工具缓存
+# ------------------------------
+lsp-session-v1
+lsp-session-v1.el
+dap-breakpoints
+.eglot/
+.rtags-cache/
+ccls-cache/
+
+# ------------------------------
+# Tree-sitter / 原生编译缓存
+# ------------------------------
+tree-sitter/
+treesit-auto/
+
+# ------------------------------
+# 桌面会话
+# ------------------------------
+.desktop
+.desktop.lock
+
+# ------------------------------
+# 服务器 / 进程文件
+# ------------------------------
+server/
+network-security.data
+
+# ------------------------------
+# 私人/机器相关配置（可按需忽略）
+# ------------------------------
+custom/auto-save.el
+custom/session.el
+custom/cache.el
+
+# ------------------------------
+# 可能含敏感信息的本地文件
+# 建议把 token、路径、私人账号单独放本地文件
+# 然后把这些文件忽略掉
+# ------------------------------
+private.el
+secrets.el
+authinfo
+.authinfo
+.authinfo.gpg
+
+# ------------------------------
+# 操作系统文件
+# ------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
