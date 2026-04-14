@@ -1,4 +1,4 @@
-;;; init.el --- stable Emacs config + LeetCode/C++ setup
+;;; init.el --- stable Emacs config
 
 ;; -----------------------------
 ;; 基础界面
@@ -33,14 +33,12 @@
 ;; -----------------------------
 (setq-default indent-tabs-mode nil)
 (setq-default tab-width 4)
-(setq-default c-basic-offset 4)
 
 (electric-pair-mode t)
 (delete-selection-mode t)
 
 (setq make-backup-files nil)
 (setq auto-save-default nil)
-(setq compilation-scroll-output t)
 
 ;; -----------------------------
 ;; 快捷键
@@ -52,17 +50,11 @@
 ;; 包管理
 ;; -----------------------------
 (require 'package)
-(setq package-archives
-      '(("gnu"    . "https://elpa.gnu.org/packages/")
-        ("nongnu" . "https://elpa.nongnu.org/nongnu/")
-        ("melpa"  . "https://melpa.org/packages/")))
-
+(add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
 (package-initialize)
 
-(unless package-archive-contents
-  (package-refresh-contents))
-
 (unless (package-installed-p 'use-package)
+  (package-refresh-contents)
   (package-install 'use-package))
 
 (require 'use-package)
@@ -79,76 +71,6 @@
                  "C_INCLUDE_PATH" "CPLUS_INCLUDE_PATH"))
     (add-to-list 'exec-path-from-shell-variables var))
   (exec-path-from-shell-initialize))
-
-;; -----------------------------
-;; 补全 UI
-;; -----------------------------
-(use-package corfu
-  :init
-  (global-corfu-mode)
-  :custom
-  (corfu-auto t)
-  (corfu-auto-delay 0.1)
-  (corfu-auto-prefix 1)
-  (corfu-cycle t)
-  (corfu-preview-current nil)
-  (corfu-quit-no-match 'separator))
-
-(use-package cape
-  :init
-  ;; 让 C/C++ 的补全候选更丰富：文件路径、关键字、动态词
-  (add-to-list 'completion-at-point-functions #'cape-file)
-  (add-to-list 'completion-at-point-functions #'cape-dabbrev))
-
-;; -----------------------------
-;; 模板展开
-;; -----------------------------
-(use-package yasnippet
-  :init
-  (yas-global-mode 1))
-
-;; -----------------------------
-;; 实时语法检查
-;; -----------------------------
-(use-package flycheck
-  :init
-  (global-flycheck-mode 1))
-
-;; -----------------------------
-;; LSP：C / C++ 智能补全、跳转、诊断
-;; 需要系统里安装 clangd
-;; -----------------------------
-(use-package eglot
-  :hook ((c-mode c++-mode c-ts-mode c++-ts-mode) . eglot-ensure)
-  :config
-  ;; 给 clangd 更适合刷题的编译参数
-  (add-to-list 'eglot-server-programs
-               '((c++-mode c++-ts-mode c-mode c-ts-mode)
-                 . ("clangd"
-                    "--background-index"
-                    "--clang-tidy"
-                    "--completion-style=detailed"
-                    "--header-insertion=never"))))
-
-(use-package clang-format
-  :bind (:map c-mode-base-map
-              ("C-c f" . clang-format-buffer)))
-
-;; -----------------------------
-;; LeetCode
-;; 浏览题目 / 打开题解文件 / 测试 / 提交
-;; -----------------------------
-(use-package leetcode
-  :commands leetcode
-  :bind (("C-c l" . leetcode))
-  :init
-  (setq leetcode-prefer-language "cpp"
-        leetcode-prefer-sql "mysql"
-        leetcode-save-solutions t
-        leetcode-directory "~/Documents/code/Leetcode"
-        leetcode-prefer-tag-display t))
-
-;; -----------------------------
 ;; Markdown：稳定优先
 ;; 不用 md-ts-mode，避免和 markdown-mode 生态冲突
 ;; -----------------------------
@@ -225,18 +147,14 @@
     "Show tree-sitter status."
     (interactive)
     (message
-     "treesit=%s | c=%S | cpp=%S | python=%S | javascript=%S | rust=%S"
+     "treesit=%s | python=%S | javascript=%S | rust=%S"
      (if (and (fboundp 'treesit-available-p) (treesit-available-p)) "ok" "missing")
      (and (fboundp 'treesit-language-available-p)
-          (treesit-language-available-p 'c))
+          (treesit-language-available-p 'python t))
      (and (fboundp 'treesit-language-available-p)
-          (treesit-language-available-p 'cpp))
+          (treesit-language-available-p 'javascript t))
      (and (fboundp 'treesit-language-available-p)
-          (treesit-language-available-p 'python))
-     (and (fboundp 'treesit-language-available-p)
-          (treesit-language-available-p 'javascript))
-     (and (fboundp 'treesit-language-available-p)
-          (treesit-language-available-p 'rust))))
+          (treesit-language-available-p 'rust t))))
 
   ;; 老 mode -> ts-mode
   (dolist (spec '((c-mode      c-ts-mode        c)
@@ -267,20 +185,17 @@
              (my/treesit-ok-p 'toml))
     (add-to-list 'auto-mode-alist '("\\.toml\\'" . toml-ts-mode))))
 
-;; -----------------------------
-;; C++：一键编译运行当前文件
-;; macOS/Linux/Windows 都尽量兼容
-;; -----------------------------
 (defun compile-and-run-c++ ()
-  "编译并运行当前 C++ 文件。"
+  "编译并运行当前C++文件（Windows兼容版）"
   (interactive)
   (save-buffer)
   (let* ((file (buffer-file-name))
          (output (file-name-sans-extension file))
+         ;; Windows 用 && 连接，可执行文件加 .exe
          (cmd (if (eq system-type 'windows-nt)
                   (format "g++ -std=c++17 -O2 -Wall \"%s\" -o \"%s\" && \"%s.exe\""
                           file output output)
-                (format "g++ -std=c++17 -O2 -Wall \"%s\" -o \"%s\" && \"%s\" && rm -f \"%s\""
+                (format "g++ -std=c++17 -O2 -Wall \"%s\" -o \"%s\" && \"%s\" && rm \"%s\""
                         file output output output))))
     (compile cmd)))
 
@@ -300,6 +215,7 @@
 (add-hook 'c-mode-hook #'my/cpp-mode-setup)
 (add-hook 'c-ts-mode-hook #'my/cpp-mode-setup)
 
+
 ;; =========================
 ;; macOS 键位
 ;; command 当 Meta，option 当 Super
@@ -307,6 +223,10 @@
 ;; =========================
 (setq ns-command-modifier 'meta)
 (setq ns-option-modifier 'super)
+
+(setq-default indent-tabs-mode nil)
+(setq-default tab-width 4)
+(setq-default c-basic-offset 4)
 
 ;; -----------------------------
 ;; Custom 自动写入区
