@@ -127,13 +127,14 @@
           (toml       "https://github.com/tree-sitter/tree-sitter-toml")
           (tsx        "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
           (typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
-          (yaml       "https://github.com/ikatyang/tree-sitter-yaml")))
+          (yaml       "https://github.com/ikatyang/tree-sitter-yaml")
+          (c-sharp    "https://github.com/tree-sitter/tree-sitter-c-sharp")))
 
   ;; 手动安装 grammar
   (defun my/treesit-install-grammars ()
     "Install missing tree-sitter grammars."
     (interactive)
-    (dolist (lang '(bash c cpp css go html javascript json python rust toml tsx typescript yaml))
+    (dolist (lang '(bash c cpp css go html javascript json python rust toml tsx typescript yaml c-sharp))
       (unless (my/treesit-ok-p lang)
         (message "Installing tree-sitter grammar for %s..." lang)
         (condition-case err
@@ -158,6 +159,7 @@
 
   ;; 老 mode -> ts-mode
   (dolist (spec '((c-mode      c-ts-mode        c)
+                  (csharp-mode csharp-ts-mode   c-sharp)
                   (c++-mode    c++-ts-mode      cpp)
                   (sh-mode     bash-ts-mode     bash)
                   (css-mode    css-ts-mode      css)
@@ -214,6 +216,41 @@
 (add-hook 'c++-ts-mode-hook #'my/cpp-mode-setup)
 (add-hook 'c-mode-hook #'my/cpp-mode-setup)
 (add-hook 'c-ts-mode-hook #'my/cpp-mode-setup)
+
+
+;; -----------------------------
+;; C# / Unity 开发支持
+;; 依赖：dotnet tool install -g csharp-ls
+;; -----------------------------
+(use-package csharp-mode
+  :mode "\\.cs\\'"
+  :init
+  (when (and (fboundp 'csharp-ts-mode)
+             (my/treesit-ok-p 'c-sharp))
+    (add-to-list 'major-mode-remap-alist '(csharp-mode . csharp-ts-mode))))
+
+(use-package eglot
+  :hook ((csharp-mode . eglot-ensure)
+         (csharp-ts-mode . eglot-ensure))
+  :config
+  (add-to-list 'eglot-server-programs
+               '(csharp-mode . ("csharp-ls")))
+  (add-to-list 'eglot-server-programs
+               '(csharp-ts-mode . ("csharp-ls"))))
+
+(defun my/csharp-mode-setup ()
+  "C# / Unity editing setup."
+  (setq-local c-basic-offset 4)
+  (setq-local tab-width 4)
+  (setq-local indent-tabs-mode nil)
+  ;; eglot 使用 flymake 作为诊断后端
+  (when (fboundp 'flycheck-mode)
+    (flycheck-mode -1))
+  (flymake-mode 1))
+
+(add-hook 'csharp-mode-hook #'my/csharp-mode-setup)
+(add-hook 'csharp-ts-mode-hook #'my/csharp-mode-setup)
+
 
 
 ;; =========================
