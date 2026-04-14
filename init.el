@@ -88,9 +88,17 @@
   (global-corfu-mode)
   :custom
   (corfu-auto t)
+  (corfu-auto-delay 0.1)
+  (corfu-auto-prefix 1)
   (corfu-cycle t)
   (corfu-preview-current nil)
   (corfu-quit-no-match 'separator))
+
+(use-package cape
+  :init
+  ;; 让 C/C++ 的补全候选更丰富：文件路径、关键字、动态词
+  (add-to-list 'completion-at-point-functions #'cape-file)
+  (add-to-list 'completion-at-point-functions #'cape-dabbrev))
 
 ;; -----------------------------
 ;; 模板展开
@@ -116,7 +124,15 @@
   ;; 给 clangd 更适合刷题的编译参数
   (add-to-list 'eglot-server-programs
                '((c++-mode c++-ts-mode c-mode c-ts-mode)
-                 . ("clangd" "--header-insertion=never"))))
+                 . ("clangd"
+                    "--background-index"
+                    "--clang-tidy"
+                    "--completion-style=detailed"
+                    "--header-insertion=never"))))
+
+(use-package clang-format
+  :bind (:map c-mode-base-map
+              ("C-c f" . clang-format-buffer)))
 
 ;; -----------------------------
 ;; LeetCode
@@ -272,7 +288,12 @@
   "My C/C++ editing setup."
   (local-set-key (kbd "C-c r") #'compile-and-run-c++)
   (setq-local comment-start "// ")
-  (setq-local comment-end ""))
+  (setq-local comment-end "")
+  ;; eglot 诊断默认走 flymake；在 C/C++ 里关闭 flycheck，避免冲突
+  (flycheck-mode -1)
+  (flymake-mode 1)
+  ;; 保存自动格式化（clang-format）
+  (add-hook 'before-save-hook #'clang-format-buffer nil t))
 
 (add-hook 'c++-mode-hook #'my/cpp-mode-setup)
 (add-hook 'c++-ts-mode-hook #'my/cpp-mode-setup)
