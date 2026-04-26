@@ -26,6 +26,8 @@
         " " mode-line-buffer-identification
         " " mode-line-position))
 
+(load-theme 'tango-dark t)
+
 ;; -----------------------------
 ;; 编辑行为
 ;; -----------------------------
@@ -263,20 +265,6 @@
 (setq-default tab-width 4)
 (setq-default c-basic-offset 4)
 
-(require 'package)
-
-(setq package-archives
-      '(("gnu"   . "https://elpa.gnu.org/packages/")
-        ("melpa" . "https://melpa.org/packages/")))
-
-(unless package-archive-contents
-  (package-refresh-contents))
-
-(unless (package-installed-p 'chocolate-theme)
-  (package-install 'chocolate-theme))
-
-(load-theme 'chocolate t)
-
 ;; -----------------------------
 ;; Custom 自动写入区
 ;; -----------------------------
@@ -293,11 +281,3 @@
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  )
-
-;; >>> emacs-ghostty-codex-additive
-;; Added by install-emacs-ghostty-codex-additive.sh.
-;; This only loads an external module; your existing config above is unchanged.
-(let ((ai-workflow-file "/Users/rytukim/.config/ai-workflow/emacs/ai-ghostty-codex-workflow.el"))
-  (when (file-readable-p ai-workflow-file)
-    (load ai-workflow-file nil t)))
-;; <<< emacs-ghostty-codex-additive
