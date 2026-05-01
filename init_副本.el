@@ -26,8 +26,6 @@
         " " mode-line-buffer-identification
         " " mode-line-position))
 
-(load-theme 'tango-dark t)
-
 ;; -----------------------------
 ;; 编辑行为
 ;; -----------------------------
@@ -61,6 +59,16 @@
 (setq use-package-always-ensure t)
 
 ;; -----------------------------
+;; macOS：让 Emacs 继承终端 PATH
+;; 解决 clangd / g++ / pip 包在 Emacs 里找不到的问题
+;; -----------------------------
+(use-package exec-path-from-shell
+  :if (memq window-system '(mac ns x))
+  :config
+  (dolist (var '("PATH" "MANPATH" "LIBRARY_PATH" "CPATH"
+                 "C_INCLUDE_PATH" "CPLUS_INCLUDE_PATH"))
+    (add-to-list 'exec-path-from-shell-variables var))
+  (exec-path-from-shell-initialize))
 ;; Markdown：稳定优先
 ;; 不用 md-ts-mode，避免和 markdown-mode 生态冲突
 ;; -----------------------------
@@ -117,13 +125,14 @@
           (toml       "https://github.com/tree-sitter/tree-sitter-toml")
           (tsx        "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
           (typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
-          (yaml       "https://github.com/ikatyang/tree-sitter-yaml")))
+          (yaml       "https://github.com/ikatyang/tree-sitter-yaml")
+          (c-sharp    "https://github.com/tree-sitter/tree-sitter-c-sharp")))
 
   ;; 手动安装 grammar
   (defun my/treesit-install-grammars ()
     "Install missing tree-sitter grammars."
     (interactive)
-    (dolist (lang '(bash c cpp css go html javascript json python rust toml tsx typescript yaml))
+    (dolist (lang '(bash c cpp css go html javascript json python rust toml tsx typescript yaml c-sharp))
       (unless (my/treesit-ok-p lang)
         (message "Installing tree-sitter grammar for %s..." lang)
         (condition-case err
@@ -148,6 +157,7 @@
 
   ;; 老 mode -> ts-mode
   (dolist (spec '((c-mode      c-ts-mode        c)
+                  (csharp-mode csharp-ts-mode   c-sharp)
                   (c++-mode    c++-ts-mode      cpp)
                   (sh-mode     bash-ts-mode     bash)
                   (css-mode    css-ts-mode      css)
@@ -185,13 +195,87 @@
          (cmd (if (eq system-type 'windows-nt)
                   (format "g++ -std=c++17 -O2 -Wall \"%s\" -o \"%s\" && \"%s.exe\""
                           file output output)
-                (format "g++ -std=c++17 -O2 -Wall \"%s\" -o \"%s\" && ./\"%s\" && rm \"%s\""
+                (format "g++ -std=c++17 -O2 -Wall \"%s\" -o \"%s\" && \"%s\" && rm \"%s\""
                         file output output output))))
     (compile cmd)))
 
-(add-hook 'c++-mode-hook
-          (lambda ()
-            (local-set-key (kbd "C-c r") #'compile-and-run-c++)))
+(defun my/cpp-mode-setup ()
+  "My C/C++ editing setup."
+  (local-set-key (kbd "C-c r") #'compile-and-run-c++)
+  (setq-local comment-start "// ")
+  (setq-local comment-end "")
+  ;; eglot 诊断默认走 flymake；在 C/C++ 里关闭 flycheck，避免冲突
+  (flycheck-mode -1)
+  (flymake-mode 1)
+  ;; 保存自动格式化（clang-format）
+  (add-hook 'before-save-hook #'clang-format-buffer nil t))
+
+(add-hook 'c++-mode-hook #'my/cpp-mode-setup)
+(add-hook 'c++-ts-mode-hook #'my/cpp-mode-setup)
+(add-hook 'c-mode-hook #'my/cpp-mode-setup)
+(add-hook 'c-ts-mode-hook #'my/cpp-mode-setup)
+
+
+;; -----------------------------
+;; C# / Unity 开发支持
+;; 依赖：dotnet tool install -g csharp-ls
+;; -----------------------------
+(use-package csharp-mode
+  :mode "\\.cs\\'"
+  :init
+  (when (and (fboundp 'csharp-ts-mode)
+             (my/treesit-ok-p 'c-sharp))
+    (add-to-list 'major-mode-remap-alist '(csharp-mode . csharp-ts-mode))))
+
+(use-package eglot
+  :hook ((csharp-mode . eglot-ensure)
+         (csharp-ts-mode . eglot-ensure))
+  :config
+  (add-to-list 'eglot-server-programs
+               '(csharp-mode . ("csharp-ls")))
+  (add-to-list 'eglot-server-programs
+               '(csharp-ts-mode . ("csharp-ls"))))
+
+(defun my/csharp-mode-setup ()
+  "C# / Unity editing setup."
+  (setq-local c-basic-offset 4)
+  (setq-local tab-width 4)
+  (setq-local indent-tabs-mode nil)
+  ;; eglot 使用 flymake 作为诊断后端
+  (when (fboundp 'flycheck-mode)
+    (flycheck-mode -1))
+  (flymake-mode 1))
+
+(add-hook 'csharp-mode-hook #'my/csharp-mode-setup)
+(add-hook 'csharp-ts-mode-hook #'my/csharp-mode-setup)
+
+
+
+;; =========================
+;; macOS 键位
+;; command 当 Meta，option 当 Super
+;; 更适合大多数 mac 用户
+;; =========================
+(setq ns-command-modifier 'meta)
+(setq ns-option-modifier 'super)
+
+(setq-default indent-tabs-mode nil)
+(setq-default tab-width 4)
+(setq-default c-basic-offset 4)
+
+(require 'package)
+
+(setq package-archives
+      '(("gnu"   . "https://elpa.gnu.org/packages/")
+        ("melpa" . "https://melpa.org/packages/")))
+
+(unless package-archive-contents
+  (package-refresh-contents))
+
+(unless (package-installed-p 'chocolate-theme)
+  (package-install 'chocolate-theme))
+
+(load-theme 'chocolate t)
 
 ;; -----------------------------
 ;; Custom 自动写入区
@@ -209,3 +293,11 @@
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  )
+
+;; >>> emacs-ghostty-codex-additive
+;; Added by install-emacs-ghostty-codex-additive.sh.
+;; This only loads an external module; your existing config above is unchanged.
+(let ((ai-workflow-file "/Users/rytukim/.config/ai-workflow/emacs/ai-ghostty-codex-workflow.el"))
+  (when (file-readable-p ai-workflow-file)
+    (load ai-workflow-file nil t)))
+;; <<< emacs-ghostty-codex-additive
