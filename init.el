@@ -13,7 +13,7 @@
 (setenv "https_proxy" "http://127.0.0.1:10808")
 
 (setq inhibit-startup-screen t)
-(setq initial-scratch-message nil)
+(setq initial-scratch-message ";; Emacs ready.\n")
 (setq ring-bell-function #'ignore)
 
 (when (fboundp 'tool-bar-mode)   (tool-bar-mode -1))
@@ -51,7 +51,8 @@
 (setq auto-save-default nil)
 (setq create-lockfiles nil)
 
-(global-set-key (kbd "C-c c") #'compile)
+;; compile 原绑定 C-c c，改为 C-c C-k，把 C-c c 留给 org-capture
+(global-set-key (kbd "C-c C-k") #'compile)
 (global-set-key (kbd "C-x C-b") #'ibuffer)
 
 ;;; macOS 键位：Command 当 Meta，Option 当 Super
@@ -70,8 +71,24 @@
         ("melpa"  . "https://melpa.org/packages/")))
 (package-initialize)
 
-(unless package-archive-contents
-  (package-refresh-contents))
+;; 手动刷新：需要更新包索引时运行 M-x my/package-refresh-contents-when-stale。
+;; 不在启动阶段自动联网，避免网络不可用时图形界面看起来卡住。
+(defun my/package-archive-stale-p (&optional days)
+  "Return t if package archive cache is older than DAYS (default 1)."
+  (let* ((delta (or days 1))
+         (file (expand-file-name "archives/melpa/archive-contents"
+                                 package-user-dir))
+         (age (and (file-exists-p file)
+                   (/ (float-time (time-subtract (current-time)
+                                                 (nth 5 (file-attributes file))))
+                      86400))))
+    (or (not age) (> age delta))))
+
+(defun my/package-refresh-contents-when-stale ()
+  "Refresh package archives after startup when the cache is stale."
+  (when (my/package-archive-stale-p 1)
+    (message "Refreshing stale package archives...")
+    (package-refresh-contents)))
 
 (unless (package-installed-p 'use-package)
   (package-install 'use-package))
@@ -86,7 +103,13 @@
 
 (use-package chocolate-theme
   :config
-  (load-theme 'chocolate t))
+  (defun my/load-ui-theme (&optional _frame)
+    "Load the preferred theme for the current graphical frame."
+    (when (display-graphic-p)
+      (mapc #'disable-theme custom-enabled-themes)
+      (load-theme 'chocolate t)))
+  (my/load-ui-theme)
+  (add-hook 'after-make-frame-functions #'my/load-ui-theme))
 
 ;;; -----------------------------------------------------------------------------
 ;;; macOS：让图形版 Emacs 继承 shell 环境变量
@@ -161,8 +184,12 @@
   (corfu-preview-current nil))
 
 (use-package cape
+  :after corfu
   :init
-  (add-to-list 'completion-at-point-functions #'cape-file))
+  ;; 只在 eglot 的 capf 之后追加文件路径补全，避免干扰 LSP
+  (defun my/setup-cape-backends ()
+    (add-to-list 'completion-at-point-functions #'cape-file t))
+  (add-hook 'prog-mode-hook #'my/setup-cape-backends))
 
 (use-package yasnippet
   :config
@@ -194,6 +221,29 @@
 (use-package pandoc-mode
   :hook ((markdown-mode . pandoc-mode)
          (gfm-mode . pandoc-mode)))
+
+;;; Markdown 实时预览：本地 WebSocket 服务器 + 浏览器，支持 KaTeX 数学公式
+(use-package markdown-preview-mode
+  :after markdown-mode
+  :commands markdown-preview-mode
+  :config
+  ;; 使用 KaTeX 渲染 LaTeX 公式（比 MathJax 更快更轻量）
+  (setq markdown-preview-stylesheets
+        '("https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css"))
+  (setq markdown-preview-javascript
+        '("https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"
+          "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"))
+  (setq markdown-preview-script-onupdate
+        "renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}, {left: '\\\\[', right: '\\\\]', display: true}, {left: '\\\\(', right: '\\\\)', display: false}]});")
+  ;; 预览窗口自动跟随滚动（可选）
+  (setq markdown-preview-auto-open 'http))
+
+(with-eval-after-load 'markdown-mode
+  (define-key markdown-mode-command-map
+              (kbd "P") #'markdown-preview-mode))
+
+(use-package cmake-mode
+  :mode ("CMakeLists\.txt\\'" "\\.cmake\\'"))
 
 (with-eval-after-load 'markdown-mode
   (define-key markdown-mode-command-map
@@ -300,7 +350,43 @@
          ("C-c l d" . xref-find-definitions)
          ("C-c l D" . xref-find-references)
          ("C-c l q" . eglot-shutdown)
-         ("C-c l R" . eglot-reconnect)))
+         ("C-c l R" . eglot-reconnect)
+         ("C-c l t" . my/toggle-eglot-buffer)))
+
+(defun my/leetcode-p ()
+  "判断当前文件是否是 LeetCode 题解文件。
+支持路径中包含 leetcode/lc，或文件名纯数字如 123.cpp"
+  (when buffer-file-name
+    (let ((path (downcase buffer-file-name))
+          (name (file-name-nondirectory buffer-file-name)))
+      (or (string-match-p "leetcode" path)
+          (string-match-p "/lc/" path)
+          (string-match-p "^\\(lc\\|leetcode\\)" (file-name-base buffer-file-name))
+          (string-match-p "^[0-9]+\\.cpp$" name)
+          (string-match-p "^[0-9]+\\.c$"   name)))))
+
+(defun my/eglot-maybe-ensure ()
+  "启动 Eglot，但 LeetCode 单文件不启动，避免满屏报错。"
+  (unless (my/leetcode-p)
+    (eglot-ensure)))
+
+(defun my/toggle-eglot-buffer ()
+  "切换当前 buffer 的 Eglot 连接。"
+  (interactive)
+  (if (and (fboundp 'eglot-managed-p) (eglot-managed-p))
+      (progn (eglot-shutdown) (message "Eglot 已关闭"))
+    (eglot-ensure) (message "Eglot 已启动")))
+
+(with-eval-after-load 'eglot
+  ;; C/C++: clangd with background index and clang-tidy
+  ;; 单独为每个 mode 注册，兼容所有 Eglot 版本
+  (dolist (mode '(c-mode c-ts-mode c++-mode c++-ts-mode))
+    (add-to-list 'eglot-server-programs
+                 `(,mode . ("clangd"
+                            "--background-index"
+                            "--clang-tidy"
+                            "--header-insertion=iwyu"
+                            "--completion-style=bundled")))))
 
 (defun my/eglot-format-buffer-on-save ()
   "Format current buffer on save when Eglot manages it."
@@ -308,6 +394,71 @@
              (eglot-managed-p))
     (ignore-errors
       (eglot-format-buffer))))
+
+(defun my/project-detect-build-command (root)
+  "Detect build command for project at ROOT.
+Supports CMake, Make, and Ninja."
+  (cond
+   ((file-exists-p (expand-file-name "build.ninja" root))
+    "ninja")
+   ((file-exists-p (expand-file-name "Makefile" root))
+    "make")
+   ((file-exists-p (expand-file-name "makefile" root))
+    "make")
+   ((file-exists-p (expand-file-name "CMakeLists.txt" root))
+    (if (file-exists-p (expand-file-name "build/" root))
+        "cmake --build build"
+      "mkdir -p build && cd build && cmake .. && make"))
+   (t nil)))
+
+(defun my/cmake-configure-project ()
+  "Configure current CMake project: generate build/ + compile_commands.json.
+Creates a symlink compile_commands.json → build/compile_commands.json
+so that clangd can find it automatically."
+  (interactive)
+  (let* ((root (my/project-root-or-current))
+         (cmake-file (expand-file-name "CMakeLists.txt" root)))
+    (unless (file-exists-p cmake-file)
+      (user-error "No CMakeLists.txt found in %s" root))
+    (let ((default-directory root))
+      ;; Run cmake configuration
+      (compile "cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON")
+      ;; Create symlink if missing
+      (let ((json (expand-file-name "compile_commands.json" root))
+            (json-in-build (expand-file-name "build/compile_commands.json" root)))
+        (when (and (file-exists-p json-in-build)
+                   (not (file-exists-p json)))
+          (make-symbolic-link json-in-build json)
+          (message "Created symlink: compile_commands.json -> build/compile_commands.json"))))))
+
+(defun my/cpp-project-build ()
+  "Build current C/C++ project using detected build system."
+  (interactive)
+  (let* ((root (my/project-root-or-current))
+         (cmd (my/project-detect-build-command root)))
+    (unless cmd
+      (user-error "No build system found: missing Makefile, build.ninja or CMakeLists.txt"))
+    (let ((default-directory root))
+      (compile cmd))))
+
+(defun my/cpp-project-run ()
+  "Run compiled executable in current project.
+Searches build/ directory or project root."
+  (interactive)
+  (let* ((root (my/project-root-or-current))
+         (default-directory root)
+         (candidates
+          (append
+           (file-expand-wildcards "build/*" t)
+           (file-expand-wildcards "*.out" t)
+           (file-expand-wildcards "a.out" t)))
+         (exe (cl-find-if (lambda (f)
+                            (and (file-regular-p f)
+                                 (file-executable-p f)))
+                          candidates)))
+    (unless exe
+      (user-error "No executable found. Build the project first with C-c b"))
+    (compile (shell-quote-argument exe))))
 
 ;;; -----------------------------------------------------------------------------
 ;;; Java / Maven / Gradle
@@ -414,6 +565,10 @@ KIND can be `test' or `build'."
 ;;; C/C++
 ;;; -----------------------------------------------------------------------------
 
+;; Better GDB UI: show source + locals + stack + breakpoints side by side
+(setq gdb-many-windows t)
+(setq gdb-show-main t)
+
 (defun compile-and-run-c++ ()
   "Compile and run current C/C++ file."
   (interactive)
@@ -435,22 +590,73 @@ KIND can be `test' or `build'."
                          (shell-quote-argument exe)))))
     (compile cmd)))
 
+(defun my/cpp-debug ()
+  "Start GDB for current C/C++ program.
+Automatically finds executable: single-file exe first, then project build output."
+  (interactive)
+  (let* ((file (buffer-file-name))
+         (default-directory (my/project-root-or-current))
+         (candidates '()))
+    ;; 1. Try single-file executable (same name as source)
+    (when file
+      (let ((single-exe (file-name-sans-extension file)))
+        (when (and (file-regular-p single-exe)
+                   (file-executable-p single-exe))
+          (push single-exe candidates))))
+    ;; 2. Try a.out in current directory
+    (when (and (file-regular-p "a.out")
+               (file-executable-p "a.out"))
+      (push (expand-file-name "a.out") candidates))
+    ;; 3. Try executables in build/
+    (setq candidates
+          (append candidates
+                  (cl-remove-if-not
+                   (lambda (f) (and (file-regular-p f)
+                                    (file-executable-p f)))
+                   (file-expand-wildcards "build/*" t))))
+    ;; 4. Deduplicate and pick
+    (setq candidates (delete-dups candidates))
+    (let ((exe (cond ((null candidates)
+                      nil)
+                     ((= (length candidates) 1)
+                      (car candidates))
+                     (t
+                      (completing-read "Debug executable: " candidates nil t)))))
+      (unless (and exe (not (string-empty-p exe)))
+        (user-error "No executable found. Compile first with C-c r (single file) or C-c b (project)"))
+      (gdb (concat "gdb -i=mi " (shell-quote-argument exe))))))
+
 (defun my/cpp-mode-setup ()
   "My C/C++ editing setup."
   (local-set-key (kbd "C-c r") #'compile-and-run-c++)
+  (local-set-key (kbd "C-c d") #'my/cpp-debug)
+  (local-set-key (kbd "C-c o") #'ff-find-other-file)
+  (local-set-key (kbd "C-c b") #'my/cpp-project-build)
+  (local-set-key (kbd "C-c B") #'my/cmake-configure-project)
+  (local-set-key (kbd "C-c R") #'my/cpp-project-run)
   (setq-local comment-start "// ")
   (setq-local comment-end "")
+  ;; Tree-sitter C/C++ 用独立的缩进变量
+  (setq-local c-ts-mode-indent-offset 4)
+  (when (boundp 'c++-ts-mode-indent-offset)
+    (setq-local c++-ts-mode-indent-offset 4))
   (when (fboundp 'flycheck-mode)
     (flycheck-mode -1))
   (flymake-mode 1)
-  ;; 如果安装了 clang-format 包/命令，保存时自动格式化。
-  (when (fboundp 'clang-format-buffer)
-    (add-hook 'before-save-hook #'clang-format-buffer nil t)))
+  ;; Use Eglot formatting instead of standalone clang-format
+  (add-hook 'before-save-hook #'my/eglot-format-buffer-on-save nil t))
 
 (add-hook 'c++-mode-hook #'my/cpp-mode-setup)
 (add-hook 'c++-ts-mode-hook #'my/cpp-mode-setup)
 (add-hook 'c-mode-hook #'my/cpp-mode-setup)
 (add-hook 'c-ts-mode-hook #'my/cpp-mode-setup)
+
+;; Ensure Eglot starts automatically for C/C++
+;; LeetCode 文件自动跳过，避免单文件满屏报错
+(add-hook 'c-mode-hook #'my/eglot-maybe-ensure)
+(add-hook 'c++-mode-hook #'my/eglot-maybe-ensure)
+(add-hook 'c-ts-mode-hook #'my/eglot-maybe-ensure)
+(add-hook 'c++-ts-mode-hook #'my/eglot-maybe-ensure)
 
 ;;; -----------------------------------------------------------------------------
 ;;; C# / Unity
@@ -486,6 +692,12 @@ KIND can be `test' or `build'."
 ;;; -----------------------------------------------------------------------------
 ;;; Ghostty / Codex 外部模块：保留你原来的加载方式
 ;;; -----------------------------------------------------------------------------
+
+;;; ---------------------------------------------------------------------------
+;;; Org: 笔记 + 任务 + 知识库
+;;; ---------------------------------------------------------------------------
+(add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
+(require 'init-org)
 
 (let ((ai-workflow-file "/Users/rytukim/.config/ai-workflow/emacs/ai-ghostty-codex-workflow.el"))
   (when (file-readable-p ai-workflow-file)

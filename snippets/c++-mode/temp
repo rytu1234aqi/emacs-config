@@ -1,0 +1,4 @@
+# key: temp
+# name: template
+# --
+template <typename ${1:T}>

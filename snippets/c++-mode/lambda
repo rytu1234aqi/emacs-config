@@ -1,0 +1,6 @@
+# key: lambda
+# name: lambda expression
+# --
+[${1:&}](${2:args}) {
+    $0
+}

@@ -1,0 +1,4 @@
+# key: cerr
+# name: std::cerr
+# --
+std::cerr << ${1:error} << std::endl;

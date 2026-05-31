@@ -1,0 +1,11 @@
+# key: try
+# name: try-catch
+# --
+try
+{
+    $0
+}
+catch (const std::exception& e)
+{
+    std::cerr << e.what() << std::endl;
+}

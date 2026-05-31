@@ -1,0 +1,4 @@
+# key: incc
+# name: #include ""
+# --
+#include "${1:header.h}"

@@ -1,0 +1,7 @@
+# key: forr
+# name: range-based for loop
+# --
+for (auto& ${1:x} : ${2:container})
+{
+    $0
+}

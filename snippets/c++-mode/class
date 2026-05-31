@@ -1,0 +1,14 @@
+# key: class
+# name: class definition
+# --
+class ${1:Name}
+{
+public:
+    $1();
+    ~$1();
+
+    $0
+
+private:
+    
+};

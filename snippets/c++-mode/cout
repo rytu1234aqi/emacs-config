@@ -1,0 +1,4 @@
+# key: cout
+# name: std::cout
+# --
+std::cout << ${1:msg} << std::endl;

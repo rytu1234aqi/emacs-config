@@ -1,0 +1,7 @@
+# key: while
+# name: while loop
+# --
+while (${1:condition})
+{
+    $0
+}

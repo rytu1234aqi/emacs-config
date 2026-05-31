@@ -1,0 +1,11 @@
+# key: switch
+# name: switch statement
+# --
+switch (${1:expr})
+{
+case ${2:val}:
+    $0
+    break;
+default:
+    break;
+}

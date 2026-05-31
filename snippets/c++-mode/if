@@ -1,0 +1,7 @@
+# key: if
+# name: if statement
+# --
+if (${1:condition})
+{
+    $0
+}

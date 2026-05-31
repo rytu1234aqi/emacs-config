@@ -1,0 +1,9 @@
+# key: guard
+# name: header include guard
+# --
+#ifndef ${1:HEADER_H}
+#define $1
+
+$0
+
+#endif // $1
