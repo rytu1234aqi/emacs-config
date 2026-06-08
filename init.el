@@ -9,6 +9,16 @@
 ;;; 基础界面
 ;;; -----------------------------------------------------------------------------
 
+(setq package-archives
+      '(("gnu"    . "https://mirrors.tuna.tsinghua.edu.cn/elpa/gnu/")
+        ("nongnu" . "https://mirrors.tuna.tsinghua.edu.cn/elpa/nongnu/")
+        ("melpa"  . "https://mirrors.tuna.tsinghua.edu.cn/elpa/melpa/")
+        ("melpa-stable" . "https://mirrors.tuna.tsinghua.edu.cn/elpa/melpa-stable/")))
+
+;; 强制刷新包索引，避免缓存旧的 melpa.org 地址
+(unless package-archive-contents
+  (package-refresh-contents))
+
 (setenv "http_proxy" "http://127.0.0.1:10808")
 (setenv "https_proxy" "http://127.0.0.1:10808")
 
@@ -705,3 +715,5 @@ Automatically finds executable: single-file exe first, then project build output
 
 (provide 'init)
 ;;; init.el ends here
+
+
