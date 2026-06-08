@@ -701,7 +701,8 @@ Automatically finds executable: single-file exe first, then project build output
 
 (let ((ai-workflow-file "/Users/rytukim/.config/ai-workflow/emacs/ai-ghostty-codex-workflow.el"))
   (when (file-readable-p ai-workflow-file)
-    (load ai-workflow-file nil t)))
+    (let ((inhibit-message t))
+      (load ai-workflow-file nil t))))
 
 (provide 'init)
 ;;; init.el ends here

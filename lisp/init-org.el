@@ -25,7 +25,7 @@
   :bind
   (("C-c a" . org-agenda)
    ("C-c c" . org-capture)
-   ("C-c l" . org-store-link))
+   ("C-c n l" . org-store-link))
   :hook
   ((org-mode . visual-line-mode)
    (org-mode . rytu/org-mode-setup))
