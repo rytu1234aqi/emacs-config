@@ -9,19 +9,6 @@
 ;;; 基础界面
 ;;; -----------------------------------------------------------------------------
 
-(setq package-archives
-      '(("gnu"    . "https://mirrors.tuna.tsinghua.edu.cn/elpa/gnu/")
-        ("nongnu" . "https://mirrors.tuna.tsinghua.edu.cn/elpa/nongnu/")
-        ("melpa"  . "https://mirrors.tuna.tsinghua.edu.cn/elpa/melpa/")
-        ("melpa-stable" . "https://mirrors.tuna.tsinghua.edu.cn/elpa/melpa-stable/")))
-
-;; 强制刷新包索引，避免缓存旧的 melpa.org 地址
-(unless package-archive-contents
-  (package-refresh-contents))
-
-(setenv "http_proxy" "http://127.0.0.1:10808")
-(setenv "https_proxy" "http://127.0.0.1:10808")
-
 (setq inhibit-startup-screen t)
 (setq initial-scratch-message ";; Emacs ready.\n")
 (setq ring-bell-function #'ignore)
@@ -32,11 +19,13 @@
 
 (add-to-list 'default-frame-alist '(fullscreen . maximized))
 
-(global-display-line-numbers-mode 1)
 (column-number-mode 1)
-(global-hl-line-mode 1)
 (show-paren-mode 1)
 (setq show-paren-delay 0)
+
+;; 行号和当前行高亮只用于编辑文本的缓冲区，避免拖慢大型特殊缓冲区。
+(add-hook 'prog-mode-hook #'display-line-numbers-mode)
+(add-hook 'prog-mode-hook #'hl-line-mode)
 
 (setq mode-line-format
       '(" " mode-line-modified
@@ -48,6 +37,23 @@
 ;;; 编辑行为
 ;;; -----------------------------------------------------------------------------
 
+(defvar my/state-directory
+  (expand-file-name "var/" user-emacs-directory)
+  "Directory for generated state and recovery files.")
+
+(let ((backup-dir (expand-file-name "backups/" my/state-directory))
+      (auto-save-dir (expand-file-name "auto-save/" my/state-directory)))
+  (dolist (dir (list my/state-directory backup-dir auto-save-dir))
+    (make-directory dir t))
+  (setq backup-directory-alist `(("." . ,backup-dir))
+        auto-save-file-name-transforms `((".*" ,auto-save-dir t))
+        auto-save-list-file-prefix (expand-file-name ".saves-" auto-save-dir)))
+
+(setq save-place-file (expand-file-name "places" my/state-directory)
+      recentf-save-file (expand-file-name "recentf" my/state-directory)
+      savehist-file (expand-file-name "history" my/state-directory)
+      project-list-file (expand-file-name "projects" my/state-directory))
+
 (setq-default indent-tabs-mode nil)
 (setq-default tab-width 4)
 (setq-default c-basic-offset 4)
@@ -56,10 +62,15 @@
 (delete-selection-mode 1)
 (save-place-mode 1)
 (recentf-mode 1)
+(savehist-mode 1)
 
-(setq make-backup-files nil)
-(setq auto-save-default nil)
-(setq create-lockfiles nil)
+(setq make-backup-files t
+      auto-save-default t
+      create-lockfiles t
+      version-control t
+      kept-new-versions 10
+      kept-old-versions 2
+      delete-old-versions t)
 
 ;; compile 原绑定 C-c c，改为 C-c C-k，把 C-c c 留给 org-capture
 (global-set-key (kbd "C-c C-k") #'compile)
@@ -76,10 +87,11 @@
 
 (require 'package)
 (setq package-archives
-      '(("gnu"    . "https://elpa.gnu.org/packages/")
-        ("nongnu" . "https://elpa.nongnu.org/nongnu/")
-        ("melpa"  . "https://melpa.org/packages/")))
-(package-initialize)
+      '(("gnu"    . "https://mirrors.tuna.tsinghua.edu.cn/elpa/gnu/")
+        ("nongnu" . "https://mirrors.tuna.tsinghua.edu.cn/elpa/nongnu/")
+        ("melpa"  . "https://mirrors.tuna.tsinghua.edu.cn/elpa/melpa/")))
+(unless package--initialized
+  (package-initialize))
 
 ;; 手动刷新：需要更新包索引时运行 M-x my/package-refresh-contents-when-stale。
 ;; 不在启动阶段自动联网，避免网络不可用时图形界面看起来卡住。
@@ -101,6 +113,8 @@
     (package-refresh-contents)))
 
 (unless (package-installed-p 'use-package)
+  (unless package-archive-contents
+    (package-refresh-contents))
   (package-install 'use-package))
 
 (require 'use-package)
@@ -111,13 +125,27 @@
 (when (file-exists-p custom-file)
   (load custom-file))
 
-(use-package chocolate-theme
+;; 顶层依赖清单同时用于重建环境和保护 `package-autoremove'。
+(defconst my/package-selected-packages
+  '(cape cmake-mode consult corfu csharp-mode doom-themes eat eglot-java
+    exec-path-from-shell grip-mode leetcode magit marginalia markdown-mode
+    markdown-preview-mode markdown-toc orderless org-appear org-modern org-roam
+    org-super-agenda pandoc-mode toc-org transient use-package valign vertico
+    which-key yasnippet)
+  "Packages intentionally installed by this configuration.")
+(setq package-selected-packages (copy-sequence my/package-selected-packages))
+
+(use-package doom-themes
+  :ensure t
   :config
-  (defun my/load-ui-theme (&optional _frame)
+  (defun my/load-ui-theme (&optional frame)
     "Load the preferred theme for the current graphical frame."
-    (when (display-graphic-p)
-      (mapc #'disable-theme custom-enabled-themes)
-      (load-theme 'chocolate t)))
+    (let ((frame (or frame (selected-frame))))
+      (when (display-graphic-p frame)
+        (with-selected-frame frame
+          (unless (memq 'doom-one-light custom-enabled-themes)
+            (mapc #'disable-theme custom-enabled-themes)
+            (load-theme 'doom-one-light t))))))
   (my/load-ui-theme)
   (add-hook 'after-make-frame-functions #'my/load-ui-theme))
 
@@ -131,11 +159,13 @@
   :config
   (dolist (var '("PATH" "MANPATH"
                  "JAVA_HOME" "JDK_HOME" "MAVEN_HOME" "GRADLE_HOME" "GRAALVM_HOME"
-                 "LIBRARY_PATH" "CPATH" "C_INCLUDE_PATH" "CPLUS_INCLUDE_PATH"))
+                 "LIBRARY_PATH" "CPATH" "C_INCLUDE_PATH" "CPLUS_INCLUDE_PATH"
+                 "OPENAI_API_KEY" "ANTHROPIC_API_KEY"))
     (add-to-list 'exec-path-from-shell-variables var))
   (exec-path-from-shell-initialize))
 
 (require 'subr-x)
+(require 'cl-lib)
 
 (defun my/macos-use-java-21-when-available ()
   "On macOS, set JAVA_HOME to Java 21 via /usr/libexec/java_home when unset."
@@ -184,13 +214,13 @@
          ("M-g e"   . consult-flymake)))
 
 (use-package corfu
-  :init
-  (global-corfu-mode 1)
+  :hook ((prog-mode . corfu-mode)
+         (text-mode . corfu-mode))
   :custom
   (corfu-auto t)
   (corfu-cycle t)
-  (corfu-auto-delay 0.1)
-  (corfu-auto-prefix 1)
+  (corfu-auto-delay 0.15)
+  (corfu-auto-prefix 2)
   (corfu-preview-current nil))
 
 (use-package cape
@@ -202,8 +232,8 @@
   (add-hook 'prog-mode-hook #'my/setup-cape-backends))
 
 (use-package yasnippet
-  :config
-  (yas-global-mode 1))
+  :hook ((prog-mode . yas-minor-mode)
+         (text-mode . yas-minor-mode)))
 
 (use-package magit
   :bind (("C-x g" . magit-status)))
@@ -253,7 +283,7 @@
               (kbd "P") #'markdown-preview-mode))
 
 (use-package cmake-mode
-  :mode ("CMakeLists\.txt\\'" "\\.cmake\\'"))
+  :mode ("CMakeLists\\.txt\\'" "\\.cmake\\'"))
 
 (with-eval-after-load 'markdown-mode
   (define-key markdown-mode-command-map
@@ -353,7 +383,8 @@
 (use-package eglot
   :custom
   (eglot-autoshutdown t)
-  (eglot-events-buffer-size 0)
+  ;; 保留有限日志，便于诊断 JDT LS/clangd 协议问题。
+  (eglot-events-buffer-size 200000)
   :bind (("C-c l a" . eglot-code-actions)
          ("C-c l r" . eglot-rename)
          ("C-c l f" . eglot-format-buffer)
@@ -396,30 +427,41 @@
                             "--background-index"
                             "--clang-tidy"
                             "--header-insertion=iwyu"
-                            "--completion-style=bundled")))))
+                            "--completion-style=bundled"
+                            "--fallback-style={BasedOnStyle: Google, IndentWidth: 4, TabWidth: 4, UseTab: Never}")))))
 
 (defun my/eglot-format-buffer-on-save ()
   "Format current buffer on save when Eglot manages it."
   (when (and (fboundp 'eglot-managed-p)
              (eglot-managed-p))
-    (ignore-errors
-      (eglot-format-buffer))))
+    (condition-case err
+        (eglot-format-buffer)
+      (error
+       (message "Eglot format skipped: %s" (error-message-string err))))))
+
+(defun my/require-executable (program)
+  "Return PROGRAM's executable path or signal a helpful user error."
+  (or (executable-find program)
+      (user-error "Required executable not found: %s" program)))
 
 (defun my/project-detect-build-command (root)
   "Detect build command for project at ROOT.
 Supports CMake, Make, and Ninja."
-  (cond
-   ((file-exists-p (expand-file-name "build.ninja" root))
-    "ninja")
-   ((file-exists-p (expand-file-name "Makefile" root))
-    "make")
-   ((file-exists-p (expand-file-name "makefile" root))
-    "make")
-   ((file-exists-p (expand-file-name "CMakeLists.txt" root))
-    (if (file-exists-p (expand-file-name "build/" root))
-        "cmake --build build"
-      "mkdir -p build && cd build && cmake .. && make"))
-   (t nil)))
+  (let ((build-dir (expand-file-name "build/" root)))
+    (cond
+     ((or (file-exists-p (expand-file-name "CMakeCache.txt" build-dir))
+          (file-exists-p (expand-file-name "build.ninja" build-dir))
+          (file-exists-p (expand-file-name "Makefile" build-dir)))
+      "cmake --build build")
+     ((file-exists-p (expand-file-name "build.ninja" root))
+      "ninja")
+     ((or (file-exists-p (expand-file-name "Makefile" root))
+          (file-exists-p (expand-file-name "makefile" root)))
+      "make")
+     ((file-exists-p (expand-file-name "CMakeLists.txt" root))
+      (concat "cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+              " && cmake --build build"))
+     (t nil))))
 
 (defun my/cmake-configure-project ()
   "Configure current CMake project: generate build/ + compile_commands.json.
@@ -430,16 +472,27 @@ so that clangd can find it automatically."
          (cmake-file (expand-file-name "CMakeLists.txt" root)))
     (unless (file-exists-p cmake-file)
       (user-error "No CMakeLists.txt found in %s" root))
+    (my/require-executable "cmake")
     (let ((default-directory root))
-      ;; Run cmake configuration
-      (compile "cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON")
-      ;; Create symlink if missing
-      (let ((json (expand-file-name "compile_commands.json" root))
-            (json-in-build (expand-file-name "build/compile_commands.json" root)))
-        (when (and (file-exists-p json-in-build)
-                   (not (file-exists-p json)))
-          (make-symbolic-link json-in-build json)
-          (message "Created symlink: compile_commands.json -> build/compile_commands.json"))))))
+      (let ((buffer
+             (compile
+              "cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON")))
+        ;; `compile' is asynchronous, so create the link only after success.
+        (with-current-buffer buffer
+          (add-hook
+           'compilation-finish-functions
+           (lambda (_buffer status)
+             (when (string-prefix-p "finished" status)
+               (let ((json (expand-file-name "compile_commands.json" root))
+                     (json-in-build
+                      (expand-file-name "build/compile_commands.json" root)))
+                 (when (and (file-exists-p json-in-build)
+                            (not (file-exists-p json))
+                            (not (file-symlink-p json)))
+                   (make-symbolic-link "build/compile_commands.json" json)
+                   (message
+                    "Created symlink: compile_commands.json -> build/compile_commands.json")))))
+           nil t))))))
 
 (defun my/cpp-project-build ()
   "Build current C/C++ project using detected build system."
@@ -448,6 +501,7 @@ so that clangd can find it automatically."
          (cmd (my/project-detect-build-command root)))
     (unless cmd
       (user-error "No build system found: missing Makefile, build.ninja or CMakeLists.txt"))
+    (my/require-executable (car (split-string-and-unquote cmd)))
     (let ((default-directory root))
       (compile cmd))))
 
@@ -462,11 +516,17 @@ Searches build/ directory or project root."
            (file-expand-wildcards "build/*" t)
            (file-expand-wildcards "*.out" t)
            (file-expand-wildcards "a.out" t)))
-         (exe (cl-find-if (lambda (f)
-                            (and (file-regular-p f)
-                                 (file-executable-p f)))
-                          candidates)))
-    (unless exe
+         (executables
+          (delete-dups
+           (cl-remove-if-not (lambda (f)
+                               (and (file-regular-p f)
+                                    (file-executable-p f)))
+                             candidates)))
+         (exe (cond
+               ((null executables) nil)
+               ((= (length executables) 1) (car executables))
+               (t (completing-read "Run executable: " executables nil t)))))
+    (unless (and exe (not (string-empty-p exe)))
       (user-error "No executable found. Build the project first with C-c b"))
     (compile (shell-quote-argument exe))))
 
@@ -489,13 +549,20 @@ Searches build/ directory or project root."
   ;; 不想保存自动格式化时，注释下一行。
   (add-hook 'before-save-hook #'my/eglot-format-buffer-on-save nil t))
 
+(defun my/java-eglot-setup ()
+  "Set up Java editing and start Eglot through eglot-java."
+  (my/java-mode-setup)
+  ;; `eglot-java-mode' already calls `eglot-ensure'.
+  (eglot-java-mode 1))
+
 (use-package eglot-java
-  :after eglot
-  :hook ((java-mode . my/java-mode-setup)
-         (java-ts-mode . my/java-mode-setup)
-         (java-mode . eglot-java-mode)
-         (java-ts-mode . eglot-java-mode))
+  :commands eglot-java-mode
+  :hook ((java-mode . my/java-eglot-setup)
+         (java-ts-mode . my/java-eglot-setup))
   :custom
+  (eglot-java-eglot-server-programs-manual-updates t)
+  (eglot-java-server-install-dir
+   (expand-file-name "share/eclipse.jdt.ls" user-emacs-directory))
   ;; 用 JAVA_HOME 启动 JDT Language Server；当前推荐指向 JDK 21+。
   (eglot-java-java-home (getenv "JAVA_HOME"))
   ;; 大项目可把 -Xmx2G 改成 -Xmx4G。
@@ -568,6 +635,45 @@ KIND can be `test' or `build'."
       (compile cmd))))
 
 (with-eval-after-load 'eglot-java
+  ;; eglot-java 只自动覆盖 java-mode；java-ts-mode 需要一并注册。
+  (setq eglot-server-programs
+        (cl-remove-if
+         (lambda (entry)
+           (let ((modes (car-safe entry)))
+             (or (eq modes 'java-mode)
+                 (eq modes 'java-ts-mode)
+                 (and (listp modes)
+                      (or (memq 'java-mode modes)
+                          (memq 'java-ts-mode modes))))))
+         eglot-server-programs))
+  (add-to-list 'eglot-server-programs
+               '((java-mode java-ts-mode) . eglot-java--eclipse-contact))
+  ;; JDT LS 1.58 may send RelativePattern objects for file watchers, while
+  ;; Emacs 30 Eglot expects plain glob strings.
+  (cl-defmethod eglot-register-capability :around
+    ((server eglot-java-eclipse-jdt)
+     (method (eql workspace/didChangeWatchedFiles))
+     id &rest params)
+    (let ((watchers (plist-get params :watchers)))
+      (if watchers
+          (apply
+           #'cl-call-next-method
+           server method id
+           (plist-put
+            (copy-sequence params)
+            :watchers
+            (vconcat
+             (mapcar
+              (lambda (watcher)
+                (let* ((copy (copy-sequence watcher))
+                       (glob (plist-get copy :globPattern)))
+                  (when (and (listp glob)
+                             (plist-member glob :pattern))
+                    (setq copy (plist-put copy :globPattern
+                                          (plist-get glob :pattern))))
+                  copy))
+              (append watchers nil)))))
+        (cl-call-next-method))))
   (define-key eglot-java-mode-map (kbd "C-c j p") #'my/java-project-build)
   (define-key eglot-java-mode-map (kbd "C-c j T") #'my/java-project-test))
 
@@ -582,28 +688,38 @@ KIND can be `test' or `build'."
 (defun compile-and-run-c++ ()
   "Compile and run current C/C++ file."
   (interactive)
+  (unless buffer-file-name
+    (user-error "Current buffer is not visiting a C/C++ source file"))
   (save-buffer)
-  (let* ((file (buffer-file-name))
-         (base (file-name-sans-extension file))
-         (exe  (if (eq system-type 'windows-nt)
-                   (concat base ".exe")
-                 base))
-         (cmd  (if (eq system-type 'windows-nt)
-                   (format "g++ -std=c++17 -O2 -Wall %s -o %s && %s"
-                           (shell-quote-argument file)
-                           (shell-quote-argument exe)
-                           (shell-quote-argument exe))
-                 (format "g++ -std=c++17 -O2 -Wall %s -o %s && %s; rm -f %s"
-                         (shell-quote-argument file)
-                         (shell-quote-argument exe)
-                         (shell-quote-argument exe)
-                         (shell-quote-argument exe)))))
-    (compile cmd)))
+  (let* ((file buffer-file-name)
+         (c-source-p (string-equal (downcase (or (file-name-extension file) ""))
+                                   "c"))
+         (compiler (if c-source-p "cc" "c++"))
+         (standard (if c-source-p "-std=c17" "-std=c++17"))
+         (exe (concat (make-temp-name
+                       (expand-file-name "emacs-c-run-" temporary-file-directory))
+                      (if (eq system-type 'windows-nt) ".exe" "")))
+         (cmd (format "%s %s -O2 -Wall %s -o %s && %s"
+                      compiler
+                      standard
+                      (shell-quote-argument file)
+                      (shell-quote-argument exe)
+                      (shell-quote-argument exe))))
+    (my/require-executable compiler)
+    (let ((buffer (compile cmd)))
+      ;; Delete only the unique temporary executable, on success or failure.
+      (with-current-buffer buffer
+        (add-hook 'compilation-finish-functions
+                  (lambda (_buffer _status)
+                    (when (file-exists-p exe)
+                      (delete-file exe)))
+                  nil t)))))
 
 (defun my/cpp-debug ()
   "Start GDB for current C/C++ program.
 Automatically finds executable: single-file exe first, then project build output."
   (interactive)
+  (my/require-executable "gdb")
   (let* ((file (buffer-file-name))
          (default-directory (my/project-root-or-current))
          (candidates '()))
@@ -646,6 +762,9 @@ Automatically finds executable: single-file exe first, then project build output
   (local-set-key (kbd "C-c R") #'my/cpp-project-run)
   (setq-local comment-start "// ")
   (setq-local comment-end "")
+  (setq-local indent-tabs-mode nil)
+  (setq-local tab-width 4)
+  (setq-local c-basic-offset 4)
   ;; Tree-sitter C/C++ 用独立的缩进变量
   (setq-local c-ts-mode-indent-offset 4)
   (when (boundp 'c++-ts-mode-indent-offset)
@@ -684,8 +803,14 @@ Automatically finds executable: single-file exe first, then project build output
   (add-to-list 'eglot-server-programs '(csharp-mode . ("csharp-ls")))
   (add-to-list 'eglot-server-programs '(csharp-ts-mode . ("csharp-ls"))))
 
-(add-hook 'csharp-mode-hook #'eglot-ensure)
-(add-hook 'csharp-ts-mode-hook #'eglot-ensure)
+(defun my/csharp-eglot-ensure ()
+  "Start C# Eglot only when csharp-ls is installed."
+  (if (executable-find "csharp-ls")
+      (eglot-ensure)
+    (message "C# LSP disabled: install csharp-ls to enable Eglot")))
+
+(add-hook 'csharp-mode-hook #'my/csharp-eglot-ensure)
+(add-hook 'csharp-ts-mode-hook #'my/csharp-eglot-ensure)
 
 (defun my/csharp-mode-setup ()
   "C# / Unity editing setup."
@@ -709,12 +834,18 @@ Automatically finds executable: single-file exe first, then project build output
 (add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
 (require 'init-org)
 
-(let ((ai-workflow-file "/Users/rytukim/.config/ai-workflow/emacs/ai-ghostty-codex-workflow.el"))
+(let ((ai-workflow-file
+       (expand-file-name "~/.config/ai-workflow/emacs/ai-ghostty-codex-workflow.el")))
   (when (file-readable-p ai-workflow-file)
     (let ((inhibit-message t))
-      (load ai-workflow-file nil t))))
+      ;; 环境变量已由上面的单次 initialize 批量导入。旧模块加载时会再
+      ;; 逐个查询两个 API key；在这次加载期间直接返回现有值，避免两个
+      ;; 额外的交互式 login shell。
+      (if (fboundp 'exec-path-from-shell-copy-env)
+          (cl-letf (((symbol-function 'exec-path-from-shell-copy-env)
+                     (lambda (name) (getenv name))))
+            (load ai-workflow-file nil t))
+        (load ai-workflow-file nil t)))))
 
 (provide 'init)
 ;;; init.el ends here
-
-

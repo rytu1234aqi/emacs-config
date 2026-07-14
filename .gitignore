@@ -41,6 +41,8 @@ request/
 # ------------------------------
 .org-id-locations
 *_archive
+/org-clock-save.el
+/org-roam.db
 
 # ------------------------------
 # 包管理目录（通常不上传）
@@ -60,6 +62,9 @@ lsp-session-v1
 lsp-session-v1.el
 dap-breakpoints
 .eglot/
+eglot-java-eclipse-jdt-cache/
+/share/eclipse.jdt.ls/
+/projects
 .rtags-cache/
 ccls-cache/
 
@@ -104,4 +109,4 @@ authinfo
 # ------------------------------
 .DS_Store
 Thumbs.db
-desktop.iniorg-roam.db
+desktop.ini

@@ -7,12 +7,30 @@
 (defvar rytu/org-directory (expand-file-name "~/org/")
   "Main Org directory.")
 
+(defconst rytu/org-agenda-file-names
+  '("inbox.org" "tasks.org" "projects.org" "habits.org")
+  "Org files that should participate in agenda views when they exist.")
+
+(defvar rytu/org-state-directory
+  (expand-file-name "var/org/" user-emacs-directory)
+  "Directory for generated Org state and database files.")
+
 (defun rytu/org-file (filename)
   "Return FILENAME inside `rytu/org-directory'."
   (expand-file-name filename rytu/org-directory))
 
 (make-directory rytu/org-directory t)
 (make-directory (rytu/org-file "roam/") t)
+(make-directory rytu/org-state-directory t)
+
+(defun rytu/org-refresh-agenda-files (&rest _)
+  "Refresh `org-agenda-files', excluding files that do not exist yet."
+  (setq org-agenda-files
+        (delq nil
+              (mapcar (lambda (name)
+                        (let ((file (rytu/org-file name)))
+                          (when (file-exists-p file) file)))
+                      rytu/org-agenda-file-names))))
 
 
 ;;; ------------------------------------------------------------
@@ -32,13 +50,11 @@
   :config
   ;; Basic files
   (setq org-directory rytu/org-directory
-        org-default-notes-file (rytu/org-file "inbox.org")
-        org-agenda-files
-        (mapcar #'rytu/org-file
-                '("inbox.org"
-                  "tasks.org"
-                  "projects.org"
-                  "habits.org")))
+        org-default-notes-file (rytu/org-file "inbox.org"))
+  (rytu/org-refresh-agenda-files)
+  (unless (advice-member-p #'rytu/org-refresh-agenda-files 'org-agenda)
+    (advice-add 'org-agenda :before #'rytu/org-refresh-agenda-files))
+  (add-hook 'org-capture-after-finalize-hook #'rytu/org-refresh-agenda-files)
 
   ;; Appearance
   (setq org-startup-indented t
@@ -49,7 +65,7 @@
         org-ellipsis " ▾"
         org-auto-align-tags nil
         org-tags-column 0
-        org-catch-invisible-edits 'show-and-error
+        org-fold-catch-invisible-edits 'show-and-error
         org-special-ctrl-a/e t
         org-special-ctrl-k t
         org-return-follows-link t)
@@ -69,8 +85,7 @@
 
   ;; Tags
   (setq org-tag-alist
-        '((:startgroup)
-          ("study"   . ?s)
+        '(("study"   . ?s)
           ("exam"    . ?e)
           ("code"    . ?c)
           ("game"    . ?g)
@@ -78,14 +93,15 @@
           ("unity"   . ?u)
           ("paper"   . ?p)
           ("project" . ?j)
-          (:endgroup)
           ("urgent"  . ?x)
           ("idea"    . ?i)))
 
   ;; Logs
   (setq org-log-done 'time
         org-log-into-drawer t
-        org-clock-persist 'history)
+        org-clock-persist 'history
+        org-clock-persist-file
+        (expand-file-name "org-clock-save.el" rytu/org-state-directory))
 
   (org-clock-persistence-insinuate)
 
@@ -220,7 +236,7 @@
         ;; org-modern-checkbox 必须是列表或 nil，不能是 t
         org-modern-checkbox '((?X . "☑")
                               (?- . "☐")
-                              (?␣ . "☐"))
+                              (?\s . "☐"))
         org-modern-block-name t
         org-modern-keyword t))
 
@@ -234,8 +250,19 @@
         org-appear-autosubmarkers t))
 
 
+(defcustom rytu/org-valign-max-buffer-size 200000
+  "Maximum Org buffer size for enabling valign automatically."
+  :type 'integer
+  :group 'org)
+
+(defun rytu/org-maybe-enable-valign ()
+  "Enable valign unless the current Org buffer is unusually large."
+  (when (and (display-graphic-p)
+             (< (buffer-size) rytu/org-valign-max-buffer-size))
+    (valign-mode 1)))
+
 (use-package valign
-  :hook (org-mode . valign-mode))
+  :hook (org-mode . rytu/org-maybe-enable-valign))
 
 
 ;;; ------------------------------------------------------------
@@ -301,6 +328,8 @@
 (use-package org-roam
   :custom
   (org-roam-directory (file-truename (rytu/org-file "roam/")))
+  (org-roam-db-location
+   (expand-file-name "org-roam.db" rytu/org-state-directory))
   (org-roam-completion-everywhere t)
   :bind
   (("C-c n f" . org-roam-node-find)
