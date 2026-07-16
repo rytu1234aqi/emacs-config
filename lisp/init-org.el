@@ -9,7 +9,14 @@
 
 (defconst rytu/org-agenda-file-names
   '("inbox.org" "tasks.org" "projects.org" "habits.org")
-  "Org files that should participate in agenda views when they exist.")
+  "Org files that should participate in agenda views.")
+
+(defconst rytu/org-agenda-file-titles
+  '(("inbox.org" . "Inbox")
+    ("tasks.org" . "Tasks")
+    ("projects.org" . "Projects")
+    ("habits.org" . "Habits"))
+  "Titles used when creating missing Agenda files.")
 
 (defvar rytu/org-state-directory
   (expand-file-name "var/org/" user-emacs-directory)
@@ -22,6 +29,16 @@
 (make-directory rytu/org-directory t)
 (make-directory (rytu/org-file "roam/") t)
 (make-directory rytu/org-state-directory t)
+
+(defun rytu/org-ensure-agenda-files ()
+  "Create missing Agenda files with a minimal title."
+  (dolist (entry rytu/org-agenda-file-titles)
+    (let ((file (rytu/org-file (car entry))))
+      (unless (file-exists-p file)
+        (with-temp-file file
+          (insert "#+title: " (cdr entry) "\n\n"))))))
+
+(rytu/org-ensure-agenda-files)
 
 (defun rytu/org-refresh-agenda-files (&rest _)
   "Refresh `org-agenda-files', excluding files that do not exist yet."
@@ -149,7 +166,12 @@
 
           ("p" "Project / 项目" entry
            (file ,(rytu/org-file "projects.org"))
-           "* TODO %? :project:\n:PROPERTIES:\n:CREATED: %U\n:END:\n\n** 目标\n\n** 下一步\n- [ ] \n\n** 资料\n"
+           "* TODO %^{项目名称} :project:\n:PROPERTIES:\n:CREATED: %U\n:END:\n\n** 目标\n\n** NEXT %?\n\n** 资料\n"
+           :empty-lines 1)
+
+          ("h" "Habit / 习惯" entry
+           (file ,(rytu/org-file "habits.org"))
+           "* TODO %^{习惯名称}\nSCHEDULED: <%<%Y-%m-%d %a> %^{重复频率|.+1d|.+1w|.+1m}>\n:PROPERTIES:\n:STYLE: habit\n:CREATED: %U\n:END:\n\n%?\n"
            :empty-lines 1)
 
           ("j" "Journal / 日记" entry
@@ -179,23 +201,43 @@
 
   ;; 自定义 Agenda 视图
   (setq org-agenda-custom-commands
-        '(("d" "Dashboard"
+        `(("d" "Dashboard"
            ((agenda "" ((org-agenda-span 1)))
-            (todo "NEXT"
-                  ((org-agenda-overriding-header "Next Actions")))
-            (todo "DOING"
-                  ((org-agenda-overriding-header "Doing Now")))
-            (tags-todo "+urgent"
-                       ((org-agenda-overriding-header "Urgent")))
-            (tags-todo "+project"
-                       ((org-agenda-overriding-header "Projects")))))
+            (alltodo ""
+                     ((org-agenda-overriding-header
+                       "Open Tasks / 未完成任务")
+                      (org-agenda-todo-ignore-scheduled 'all)
+                      (org-agenda-todo-ignore-deadlines 'all)))))
 
-          ("w" "Weekly Review"
-           ((agenda "" ((org-agenda-span 7)))
+          ("w" "Next 7 Days"
+           ((agenda ""
+                    ((org-agenda-span 7)
+                     (org-agenda-start-day "+0d")
+                     (org-agenda-overriding-header
+                      "Next 7 Days / 未来七天")))))
+
+          ("r" "Weekly Review"
+           ((agenda ""
+                    ((org-agenda-span 7)
+                     (org-agenda-start-day "-6d")
+                     (org-agenda-overriding-header
+                      "Last 7 Days / 最近七天")))
+            (todo "TODO"
+                  ((org-agenda-files
+                    '(,(rytu/org-file "inbox.org")))
+                   (org-agenda-overriding-header
+                    "Inbox / 待整理")))
             (todo "WAIT"
                   ((org-agenda-overriding-header "Waiting")))
             (todo "MAYBE"
-                  ((org-agenda-overriding-header "Maybe / Ideas")))))
+                  ((org-agenda-overriding-header "Maybe / Ideas")))
+            (tags-todo "+project"
+                       ((org-agenda-overriding-header
+                         "Active Projects / 活跃项目"))))
+           ((org-agenda-start-with-log-mode t)
+            (org-agenda-log-mode-items '(closed clock state))
+            (org-super-agenda-groups nil)
+            (org-agenda-compact-blocks t)))
 
           ("s" "Study"
            ((tags-todo "+study")
@@ -296,6 +338,13 @@
 
           (:name "Waiting / 等待中"
            :todo "WAIT")
+
+          (:name "Inbox / 待整理"
+           :and (:file-path "inbox\\.org\\'"
+                 :todo "TODO"))
+
+          (:name "Habits / 习惯"
+           :habit t)
 
           (:name "Projects / 项目"
            :tag "project")
