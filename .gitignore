@@ -60,9 +60,11 @@ package-quickstart.el
 # ------------------------------
 lsp-session-v1
 lsp-session-v1.el
+.lsp-session-v1
 dap-breakpoints
 .eglot/
 eglot-java-eclipse-jdt-cache/
+.extension/
 /share/eclipse.jdt.ls/
 /projects
 .rtags-cache/

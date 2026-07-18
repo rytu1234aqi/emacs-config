@@ -89,7 +89,9 @@
 (setq package-archives
       '(("gnu"    . "https://mirrors.tuna.tsinghua.edu.cn/elpa/gnu/")
         ("nongnu" . "https://mirrors.tuna.tsinghua.edu.cn/elpa/nongnu/")
-        ("melpa"  . "https://mirrors.tuna.tsinghua.edu.cn/elpa/melpa/")))
+        ;; TUNA 的 MELPA 索引偶尔会先于归档文件同步，导致索引中的版本
+        ;; 实际无法下载；LSP/DAP 依赖更新快，直接使用官方 MELPA。
+        ("melpa"  . "https://melpa.org/packages/")))
 (unless package--initialized
   (package-initialize))
 
@@ -127,11 +129,11 @@
 
 ;; 顶层依赖清单同时用于重建环境和保护 `package-autoremove'。
 (defconst my/package-selected-packages
-  '(cape cmake-mode consult corfu csharp-mode doom-themes eat eglot-java
+  '(cape cmake-mode consult consult-lsp corfu csharp-mode dap-mode doom-themes eat eglot-java
     exec-path-from-shell grip-mode leetcode magit marginalia markdown-mode
-    markdown-preview-mode markdown-toc orderless org-appear org-modern org-roam
-    org-super-agenda pandoc-mode toc-org transient use-package valign vertico
-    which-key yasnippet)
+    lsp-mode lsp-treemacs lsp-ui markdown-preview-mode markdown-toc orderless
+    org-appear org-modern org-roam org-super-agenda pandoc-mode toc-org
+    transient treemacs use-package valign vertico which-key yasnippet)
   "Packages intentionally installed by this configuration.")
 (setq package-selected-packages (copy-sequence my/package-selected-packages))
 
@@ -320,7 +322,9 @@
           (tsx        "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
           (typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
           (yaml       "https://github.com/ikatyang/tree-sitter-yaml")
-          (c-sharp    "https://github.com/tree-sitter/tree-sitter-c-sharp")))
+          ;; v0.23.2 起 grammar 生成了 ABI 15，而 Emacs 30 仅支持 ABI 13/14。
+          ;; 固定到经 parser.c 验证仍为 ABI 14 的正式标签。
+          (c-sharp    "https://github.com/tree-sitter/tree-sitter-c-sharp" "v0.23.1")))
 
   (defun my/treesit-install-grammars ()
     "Install missing tree-sitter grammars."
@@ -788,41 +792,15 @@ Automatically finds executable: single-file exe first, then project build output
 (add-hook 'c++-ts-mode-hook #'my/eglot-maybe-ensure)
 
 ;;; -----------------------------------------------------------------------------
-;;; C# / Unity
-;;; 依赖：dotnet tool install -g csharp-ls
+;;; C# / Unity / .NET / DAP
+;;; C# 使用 lsp-mode；其他语言仍可继续使用上面的 Eglot 配置。
 ;;; -----------------------------------------------------------------------------
 
-(use-package csharp-mode
-  :mode "\\.cs\\'"
-  :init
-  (when (and (fboundp 'csharp-ts-mode)
-             (my/treesit-ok-p 'c-sharp))
-    (add-to-list 'major-mode-remap-alist '(csharp-mode . csharp-ts-mode))))
-
-(with-eval-after-load 'eglot
-  (add-to-list 'eglot-server-programs '(csharp-mode . ("csharp-ls")))
-  (add-to-list 'eglot-server-programs '(csharp-ts-mode . ("csharp-ls"))))
-
-(defun my/csharp-eglot-ensure ()
-  "Start C# Eglot only when csharp-ls is installed."
-  (if (executable-find "csharp-ls")
-      (eglot-ensure)
-    (message "C# LSP disabled: install csharp-ls to enable Eglot")))
-
-(add-hook 'csharp-mode-hook #'my/csharp-eglot-ensure)
-(add-hook 'csharp-ts-mode-hook #'my/csharp-eglot-ensure)
-
-(defun my/csharp-mode-setup ()
-  "C# / Unity editing setup."
-  (setq-local c-basic-offset 4)
-  (setq-local tab-width 4)
-  (setq-local indent-tabs-mode nil)
-  (when (fboundp 'flycheck-mode)
-    (flycheck-mode -1))
-  (flymake-mode 1))
-
-(add-hook 'csharp-mode-hook #'my/csharp-mode-setup)
-(add-hook 'csharp-ts-mode-hook #'my/csharp-mode-setup)
+(add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
+(require 'init-unity)
+(require 'init-csharp)
+(require 'init-dotnet)
+(require 'init-debug)
 
 ;;; -----------------------------------------------------------------------------
 ;;; Ghostty / Codex 外部模块：保留你原来的加载方式
@@ -831,7 +809,6 @@ Automatically finds executable: single-file exe first, then project build output
 ;;; ---------------------------------------------------------------------------
 ;;; Org: 笔记 + 任务 + 知识库
 ;;; ---------------------------------------------------------------------------
-(add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
 (require 'init-org)
 
 (let ((ai-workflow-file
