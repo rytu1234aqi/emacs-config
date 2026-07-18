@@ -428,7 +428,7 @@
                             "--clang-tidy"
                             "--header-insertion=iwyu"
                             "--completion-style=bundled"
-                            "--fallback-style={BasedOnStyle: Google, IndentWidth: 4, TabWidth: 4, UseTab: Never}")))))
+                            "--fallback-style={BasedOnStyle: LLVM, IndentWidth: 4, ContinuationIndentWidth: 4, TabWidth: 4, UseTab: Never, ColumnLimit: 100}")))))
 
 (defun my/eglot-format-buffer-on-save ()
   "Format current buffer on save when Eglot manages it."
@@ -443,6 +443,14 @@
   "Return PROGRAM's executable path or signal a helpful user error."
   (or (executable-find program)
       (user-error "Required executable not found: %s" program)))
+
+(defun my/project-find-cmake-root (dir)
+  "Treat the nearest CMakeLists.txt above DIR as a project root."
+  (when-let ((root (locate-dominating-file dir "CMakeLists.txt")))
+    (cons 'transient (file-name-as-directory (expand-file-name root)))))
+
+;; Keep VC projects as the first choice; use CMake for projects without Git.
+(add-hook 'project-find-functions #'my/project-find-cmake-root t)
 
 (defun my/project-detect-build-command (root)
   "Detect build command for project at ROOT.
@@ -752,6 +760,59 @@ Automatically finds executable: single-file exe first, then project build output
         (user-error "No executable found. Compile first with C-c r (single file) or C-c b (project)"))
       (gdb (concat "gdb -i=mi " (shell-quote-argument exe))))))
 
+(defun my/c-ts-indent-style ()
+  "Return K&R indentation with fixed-width continued arguments.
+Unlike the stock K&R rules, continuation lines are indented one level
+instead of being aligned all the way to the opening parenthesis."
+  (let* ((language (if (eq major-mode 'c++-ts-mode) 'cpp 'c))
+         (base-rules
+          (alist-get 'k&r (c-ts-mode--indent-styles language))))
+    (append
+     '(((node-is ")") parent 1)
+       ((parent-is "argument_list") parent-bol c-ts-mode-indent-offset)
+       ((parent-is "parameter_list") parent-bol c-ts-mode-indent-offset))
+     base-rules)))
+
+(defcustom my/cpp-format-on-save t
+  "Control Eglot formatting when saving C/C++ buffers.
+The value `project' enables it only when a .clang-format or
+_clang-format file exists above the current file.  A non-nil value
+always enables it, while nil disables it."
+  :type '(choice (const :tag "Projects with clang-format" project)
+                 (const :tag "Always" t)
+                 (const :tag "Never" nil))
+  :group 'tools)
+
+(defun my/cpp-format-config-p ()
+  "Return non-nil when the current C/C++ project has a format file."
+  (let ((dir (or (and buffer-file-name
+                      (file-name-directory buffer-file-name))
+                 default-directory)))
+    (or (locate-dominating-file dir ".clang-format")
+        (locate-dominating-file dir "_clang-format"))))
+
+(defun my/cpp-format-on-save-enabled-p ()
+  "Return non-nil when this buffer should format before saving."
+  (or (eq my/cpp-format-on-save t)
+      (and (eq my/cpp-format-on-save 'project)
+           (my/cpp-format-config-p))))
+
+(defun my/cpp-format-buffer ()
+  "Format the current C/C++ buffer using project or global defaults."
+  (interactive)
+  (eglot-format-buffer))
+
+(defun my/cpp-toggle-format-on-save ()
+  "Toggle Eglot formatting on save in the current C/C++ buffer."
+  (interactive)
+  (setq-local my/cpp-format-on-save
+              (if (my/cpp-format-on-save-enabled-p) nil t))
+  (if (my/cpp-format-on-save-enabled-p)
+      (add-hook 'before-save-hook #'my/eglot-format-buffer-on-save nil t)
+    (remove-hook 'before-save-hook #'my/eglot-format-buffer-on-save t))
+  (message "C/C++ format on save %s"
+           (if (my/cpp-format-on-save-enabled-p) "enabled" "disabled")))
+
 (defun my/cpp-mode-setup ()
   "My C/C++ editing setup."
   (local-set-key (kbd "C-c r") #'compile-and-run-c++)
@@ -760,20 +821,26 @@ Automatically finds executable: single-file exe first, then project build output
   (local-set-key (kbd "C-c b") #'my/cpp-project-build)
   (local-set-key (kbd "C-c B") #'my/cmake-configure-project)
   (local-set-key (kbd "C-c R") #'my/cpp-project-run)
+  (local-set-key (kbd "C-c l f") #'my/cpp-format-buffer)
+  (local-set-key (kbd "C-c l s") #'my/cpp-toggle-format-on-save)
   (setq-local comment-start "// ")
   (setq-local comment-end "")
   (setq-local indent-tabs-mode nil)
   (setq-local tab-width 4)
   (setq-local c-basic-offset 4)
-  ;; Tree-sitter C/C++ 用独立的缩进变量
-  (setq-local c-ts-mode-indent-offset 4)
-  (when (boundp 'c++-ts-mode-indent-offset)
-    (setq-local c++-ts-mode-indent-offset 4))
+  ;; Use four-space K&R indentation without deep parenthesis alignment.
+  (if (memq major-mode '(c-ts-mode c++-ts-mode))
+      (progn
+        (setq-local c-ts-mode-indent-offset 4)
+        (c-ts-mode-set-style #'my/c-ts-indent-style))
+    (c-set-style "stroustrup"))
   (when (fboundp 'flycheck-mode)
     (flycheck-mode -1))
   (flymake-mode 1)
-  ;; Use Eglot formatting instead of standalone clang-format
-  (add-hook 'before-save-hook #'my/eglot-format-buffer-on-save nil t))
+  ;; Format on save by default; `C-c l s' toggles it for this buffer.
+  (if (my/cpp-format-on-save-enabled-p)
+      (add-hook 'before-save-hook #'my/eglot-format-buffer-on-save nil t)
+    (remove-hook 'before-save-hook #'my/eglot-format-buffer-on-save t)))
 
 (add-hook 'c++-mode-hook #'my/cpp-mode-setup)
 (add-hook 'c++-ts-mode-hook #'my/cpp-mode-setup)

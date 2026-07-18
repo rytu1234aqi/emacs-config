@@ -8,7 +8,8 @@
   "Main Org directory.")
 
 (defconst rytu/org-agenda-file-names
-  '("inbox.org" "tasks.org" "projects.org" "habits.org")
+  '("inbox.org" "tasks.org" "projects.org" "habits.org"
+    "notion/tasks.org")
   "Org files that should participate in agenda views.")
 
 (defconst rytu/org-agenda-file-titles
@@ -391,7 +392,14 @@
 
 
 ;;; ------------------------------------------------------------
-;;; 7. Useful Org keybindings
+;;; 7. Notion task mirror
+;;; ------------------------------------------------------------
+
+(require 'init-notion-org)
+
+
+;;; ------------------------------------------------------------
+;;; 8. Useful Org keybindings
 ;;; ------------------------------------------------------------
 
 (with-eval-after-load 'org
