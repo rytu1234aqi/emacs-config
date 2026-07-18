@@ -10,7 +10,7 @@
 ;;; -----------------------------------------------------------------------------
 
 (setq inhibit-startup-screen t)
-(setq initial-scratch-message ";; Emacs ready.\n")
+(setq initial-scratch-message nil)
 (setq ring-bell-function #'ignore)
 
 (when (fboundp 'tool-bar-mode)   (tool-bar-mode -1))
@@ -877,6 +877,7 @@ always enables it, while nil disables it."
 ;;; Org: 笔记 + 任务 + 知识库
 ;;; ---------------------------------------------------------------------------
 (require 'init-org)
+(require 'init-dashboard)
 
 (let ((ai-workflow-file
        (expand-file-name "~/.config/ai-workflow/emacs/ai-ghostty-codex-workflow.el")))

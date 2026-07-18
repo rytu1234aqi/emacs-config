@@ -363,12 +363,27 @@ instance before using this command."
                          "ready"
                        "unavailable"))))))
 
-;; Unity invokes emacsclient, so make a server available in interactive Emacs.
-(when (and (not noninteractive)
-           (condition-case nil
-               (not (server-running-p))
-             (error nil)))
-  (server-start))
+;; Unity invokes emacsclient, so make a server available once initialization is
+;; complete.  A stale or incorrectly owned server directory must not prevent the
+;; rest of init.el (including the dashboard) from loading.
+(defvar my/unity-server-error nil
+  "Most recent error reported while starting the Emacs server.")
+
+(defun my/unity-ensure-server ()
+  "Start the Emacs server without allowing a failure to abort startup."
+  (unless noninteractive
+    (condition-case err
+        (progn
+          (setq my/unity-server-error nil)
+          (unless (server-running-p)
+            (server-start)))
+      (error
+       (setq my/unity-server-error (error-message-string err))
+       (message "Unity emacsclient integration unavailable; continuing: %s"
+                my/unity-server-error)
+       nil))))
+
+(add-hook 'emacs-startup-hook #'my/unity-ensure-server)
 
 (require 'transient)
 
