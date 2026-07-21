@@ -125,8 +125,9 @@
 (defconst my/package-selected-packages
   '(cape cmake-mode consult consult-lsp corfu csharp-mode dap-mode dashboard doom-modeline
     doom-themes eat
-    eglot-java exec-path-from-shell grip-mode leetcode magit marginalia markdown-mode
-    lsp-mode lsp-treemacs lsp-ui markdown-preview-mode markdown-toc nerd-icons orderless
+    eglot-java exec-path-from-shell grip-mode kind-icon leetcode magit marginalia markdown-mode
+    lsp-mode lsp-treemacs lsp-ui markdown-preview-mode markdown-toc nerd-icons
+    nerd-icons-completion nerd-icons-corfu nerd-icons-dired orderless
     org-appear org-modern org-roam org-super-agenda pandoc-mode toc-org
     transient treemacs use-package valign vertico which-key yasnippet)
   "Packages intentionally installed by this configuration.")
@@ -134,6 +135,7 @@
 
 (add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
 (require 'init-appearance)
+(require 'init-icons)
 (require 'init-modeline)
 
 ;;; -----------------------------------------------------------------------------
@@ -266,15 +268,6 @@ retain their normal syntax-aware indentation."
         corfu-popupinfo-max-width 80
         corfu-popupinfo-max-height 16)
   (corfu-popupinfo-mode 1))
-
-(use-package kind-icon
-  :after corfu
-  :custom
-  (kind-icon-blend-background nil)
-  (kind-icon-default-face 'corfu-default)
-  :config
-  ;; LSP supplies the candidate kind; kind-icon renders it in Corfu's margin.
-  (add-to-list 'corfu-margin-formatters #'kind-icon-margin-formatter))
 
 (use-package cape
   :after corfu

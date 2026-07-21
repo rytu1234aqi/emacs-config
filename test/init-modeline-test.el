@@ -19,14 +19,21 @@
   (should doom-modeline-buffer-encoding)
   (should doom-modeline-indent-info))
 
-(ert-deftest my/modeline-keeps-language-status-without-font-icons ()
+(ert-deftest my/modeline-keeps-language-status-with-safe-icons ()
   (should doom-modeline-lsp)
   (should (eq doom-modeline-check 'simple))
   (should doom-modeline-project-name)
-  (should-not doom-modeline-icon)
+  (should (eq doom-modeline-icon (my/icons-available-p)))
   (should-not doom-modeline-minor-modes)
   (should-not doom-modeline-env-version)
   (should-not doom-modeline-time))
+
+(ert-deftest my/modeline-icons-follow-font-availability ()
+  (let ((doom-modeline-icon nil))
+    (cl-letf (((symbol-function 'my/icons-available-p)
+               (lambda (&optional _frame) t)))
+      (my/modeline-refresh-icons (selected-frame))
+      (should doom-modeline-icon))))
 
 (provide 'init-modeline-test)
 ;;; init-modeline-test.el ends here
