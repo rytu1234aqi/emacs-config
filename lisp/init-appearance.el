@@ -4,6 +4,7 @@
 
 (require 'seq)
 (require 'use-package)
+(require 'pixel-scroll)
 
 (defgroup my/ui nil
   "Personal appearance settings."
@@ -26,6 +27,21 @@
 
 (defcustom my/ui-font-height 110
   "Default font height in tenths of a point."
+  :type 'integer
+  :group 'my/ui)
+
+(defcustom my/ui-internal-border-width 12
+  "Outer padding, in pixels, inside graphical frames."
+  :type 'integer
+  :group 'my/ui)
+
+(defcustom my/ui-fringe-width 10
+  "Width, in pixels, of the left and right fringes."
+  :type 'integer
+  :group 'my/ui)
+
+(defcustom my/ui-divider-width 1
+  "Width, in pixels, of dividers between windows."
   :type 'integer
   :group 'my/ui)
 
@@ -146,10 +162,46 @@ FRAME is accepted so this function can be used by
                               (font-spec :family emoji)
                               frame 'prepend)))))))
 
+(defun my/ui--frame-spacing-parameters ()
+  "Return the frame parameters used for modern window spacing."
+  `((internal-border-width . ,my/ui-internal-border-width)
+    (left-fringe . ,my/ui-fringe-width)
+    (right-fringe . ,my/ui-fringe-width)
+    (right-divider-width . ,my/ui-divider-width)
+    (bottom-divider-width . ,my/ui-divider-width)))
+
+(defun my/setup-frame-spacing (&optional frame)
+  "Apply padding, fringes and divider widths to FRAME and future frames."
+  (let ((frame (or frame (selected-frame)))
+        (parameters (my/ui--frame-spacing-parameters)))
+    (dolist (parameter parameters)
+      (setf (alist-get (car parameter) default-frame-alist)
+            (cdr parameter)))
+    (when (display-graphic-p frame)
+      (modify-frame-parameters frame parameters))))
+
+;;; 滚动保持匀速，光标接近边缘时只移动必要的行；页面滚动使用短动画，
+;;; 快速输入/滚动期间允许延后精细重绘，减少大型代码缓冲区的卡顿。
+(setq scroll-margin 2
+      scroll-conservatively 101
+      scroll-preserve-screen-position t
+      mouse-wheel-progressive-speed nil
+      fast-but-imprecise-scrolling t
+      pixel-scroll-precision-interpolate-page t
+      pixel-scroll-precision-use-momentum t
+      pixel-scroll-precision-interpolation-total-time 0.12
+      window-divider-default-places t
+      window-divider-default-right-width my/ui-divider-width
+      window-divider-default-bottom-width my/ui-divider-width)
+
 (my/load-ui-theme)
 (my/setup-default-font)
+(my/setup-frame-spacing)
 (add-hook 'after-make-frame-functions #'my/load-ui-theme)
 (add-hook 'after-make-frame-functions #'my/setup-default-font)
+(add-hook 'after-make-frame-functions #'my/setup-frame-spacing)
+(window-divider-mode 1)
+(pixel-scroll-precision-mode 1)
 (global-set-key (kbd "<f6>") #'my/toggle-ui-theme)
 
 (provide 'init-appearance)
