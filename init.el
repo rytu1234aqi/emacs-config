@@ -129,9 +129,9 @@
 
 ;; 顶层依赖清单同时用于重建环境和保护 `package-autoremove'。
 (defconst my/package-selected-packages
-  '(cape cmake-mode consult consult-lsp corfu csharp-mode dap-mode doom-themes eat eglot-java
-    exec-path-from-shell grip-mode leetcode magit marginalia markdown-mode
-    lsp-mode lsp-treemacs lsp-ui markdown-preview-mode markdown-toc orderless
+  '(cape cmake-mode consult consult-lsp corfu csharp-mode dap-mode dashboard doom-themes eat
+    eglot-java exec-path-from-shell grip-mode leetcode magit marginalia markdown-mode
+    lsp-mode lsp-treemacs lsp-ui markdown-preview-mode markdown-toc nerd-icons orderless
     org-appear org-modern org-roam org-super-agenda pandoc-mode toc-org
     transient treemacs use-package valign vertico which-key yasnippet)
   "Packages intentionally installed by this configuration.")
@@ -150,6 +150,19 @@
             (load-theme 'doom-one-light t))))))
   (my/load-ui-theme)
   (add-hook 'after-make-frame-functions #'my/load-ui-theme))
+
+;;; -----------------------------------------------------------------------------
+;;; 字体：Maple Mono（中英文 2:1 严格对齐），未安装时回退系统默认
+;;; -----------------------------------------------------------------------------
+
+(defun my/setup-default-font (&optional frame)
+  "Set the default face family to Maple Mono when it is available."
+  (when (and (display-graphic-p frame)
+             (member "Maple Mono" (font-family-list)))
+    (set-face-attribute 'default frame :family "Maple Mono")))
+
+(my/setup-default-font)
+(add-hook 'after-make-frame-functions #'my/setup-default-font)
 
 ;;; -----------------------------------------------------------------------------
 ;;; macOS：让图形版 Emacs 继承 shell 环境变量
