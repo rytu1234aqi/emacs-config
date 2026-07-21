@@ -27,12 +27,6 @@
 (add-hook 'prog-mode-hook #'display-line-numbers-mode)
 (add-hook 'prog-mode-hook #'hl-line-mode)
 
-(setq mode-line-format
-      '(" " mode-line-modified
-        " " mode-line-buffer-identification
-        " " mode-line-position
-        " " mode-line-modes))
-
 ;;; -----------------------------------------------------------------------------
 ;;; 编辑行为
 ;;; -----------------------------------------------------------------------------
@@ -129,7 +123,8 @@
 
 ;; 顶层依赖清单同时用于重建环境和保护 `package-autoremove'。
 (defconst my/package-selected-packages
-  '(cape cmake-mode consult consult-lsp corfu csharp-mode dap-mode dashboard doom-themes eat
+  '(cape cmake-mode consult consult-lsp corfu csharp-mode dap-mode dashboard doom-modeline
+    doom-themes eat
     eglot-java exec-path-from-shell grip-mode leetcode magit marginalia markdown-mode
     lsp-mode lsp-treemacs lsp-ui markdown-preview-mode markdown-toc nerd-icons orderless
     org-appear org-modern org-roam org-super-agenda pandoc-mode toc-org
@@ -139,6 +134,7 @@
 
 (add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
 (require 'init-appearance)
+(require 'init-modeline)
 
 ;;; -----------------------------------------------------------------------------
 ;;; macOS：让图形版 Emacs 继承 shell 环境变量
