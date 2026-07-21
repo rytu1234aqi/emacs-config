@@ -20,6 +20,8 @@
 (declare-function lsp-workspace-folders-add "lsp-mode")
 (declare-function lsp-workspace-restart "lsp-mode")
 (declare-function lsp-workspaces "lsp-mode")
+(declare-function lsp-ui-mode "lsp-ui" (&optional arg))
+(declare-function my/tab-dwim "init" ())
 
 (defgroup my/csharp nil
   "C# editing and language-server integration."
@@ -29,7 +31,7 @@
 (defcustom my/csharp-default-backend 'csharp-ls
   "Default lsp-mode backend for C# buffers."
   :type '(choice (const :tag "csharp-ls (stable)" csharp-ls)
-                 (const :tag "Official Roslyn language server (prerelease)"
+                 (const :tag "Official Roslyn language server"
                         csharp-roslyn))
   :group 'my/csharp)
 
@@ -42,16 +44,23 @@ Use `my/csharp-select-backend' to update this value safely."
                                     (const csharp-roslyn)))
   :group 'my/csharp)
 
-(defcustom my/csharp-lsp-idle-delay 0.25
+(defcustom my/csharp-lsp-idle-delay 0.5
   "Seconds of idle time before lsp-mode sends buffered changes."
   :type 'number
   :group 'my/csharp)
 
+(defcustom my/csharp-indent-width 4
+  "Width of one logical indentation tab in C# buffers."
+  :type 'integer
+  :group 'my/csharp)
+
 ;; Language servers can return large JSON messages, especially while a Unity
-;; solution is loading.  Emacs's small historical default causes needless
-;; process-filter churn.
+;; solution is loading.  Larger process chunks and a less aggressive garbage
+;; collector avoid repeated process-filter and GC pauses while typing.
 (setq read-process-output-max
       (max read-process-output-max (* 1024 1024)))
+(setq gc-cons-threshold
+      (max gc-cons-threshold (* 64 1024 1024)))
 
 (defun my/csharp--normalize-root (root)
   "Return a stable directory key for ROOT."
@@ -170,6 +179,67 @@ projects."
       (add-hook 'before-save-hook #'my/csharp--format-before-save nil t)
     (remove-hook 'before-save-hook #'my/csharp--format-before-save t)))
 
+(defun my/csharp-toggle-rich-ui ()
+  "Toggle the optional lsp-ui documentation popup for this C# buffer.
+
+Sideline diagnostics and code actions remain disabled because they redraw
+line-end overlays after edits and duplicate the lighter Flymake interface."
+  (interactive)
+  (unless (my/csharp--buffer-p)
+    (user-error "This command is only available in a C# buffer"))
+  (unless (require 'lsp-ui nil t)
+    (user-error "lsp-ui is not installed"))
+  (let ((enable (not (bound-and-true-p lsp-ui-mode))))
+    (setq-local lsp-ui-doc-enable enable
+                lsp-ui-sideline-enable nil
+                lsp-ui-sideline-show-code-actions nil)
+    (lsp-ui-mode (if enable 1 -1)))
+  (message "C# hover documentation %s"
+           (if (bound-and-true-p lsp-ui-mode) "enabled" "disabled")))
+
+(defun my/csharp-disable-sideline-ui ()
+  "Disable persistent lsp-ui overlays in a C# buffer.
+
+Completion documentation is handled by Corfu Popupinfo, while Flymake keeps
+diagnostics as lightweight underlines and fringe indicators."
+  (when (my/csharp--buffer-p)
+    (setq-local lsp-ui-doc-enable nil
+                lsp-ui-sideline-enable nil
+                lsp-ui-sideline-show-diagnostics nil
+                lsp-ui-sideline-show-hover nil
+                lsp-ui-sideline-show-code-actions nil)
+    (when (and (bound-and-true-p lsp-ui-mode)
+               (fboundp 'lsp-ui-mode))
+      (lsp-ui-mode -1))))
+
+(defun my/csharp-backward-delete ()
+  "Delete one logical tab stop in C# indentation.
+
+Inside leading whitespace, delete back to the previous
+`my/csharp-indent-width' column.  Outside indentation, preserve the normal
+one-character Backspace behavior."
+  (interactive)
+  (cond
+   ((use-region-p)
+    (delete-region (region-beginning) (region-end)))
+   ((and (> (point) (line-beginning-position))
+         (<= (point)
+             (save-excursion
+               (back-to-indentation)
+               (point))))
+    (let* ((end (point))
+           (column (current-column))
+           (width (max 1 my/csharp-indent-width))
+           (remainder (% column width))
+           (columns (if (zerop remainder) width remainder))
+           start)
+      (save-excursion
+        (move-to-column (max 0 (- column columns)))
+        (setq start (point)))
+      (delete-region start end)))
+   (t
+    (delete-backward-char 1))))
+
 (defun my/csharp-doctor ()
   "Display C#, Unity, Tree-sitter, and LSP configuration status."
   (interactive)
@@ -194,18 +264,33 @@ projects."
                      (if (and (bound-and-true-p lsp-mode)
                               (ignore-errors (lsp-workspaces)))
                          "yes"
-                       "no"))))))
+                       "no")))
+      (princ (format "LSP idle:      %.2fs\n" my/csharp-lsp-idle-delay))
+      (princ (format "GC threshold:  %.0f MiB\n"
+                     (/ gc-cons-threshold 1048576.0)))
+      (princ (format "Rich UI:       %s\n"
+                     (if (bound-and-true-p lsp-ui-mode)
+                         "enabled"
+                       "disabled (lightweight default)"))))))
 
 (defun my/csharp-mode-setup ()
   "Configure editing, diagnostics, and LSP for C# and Unity source files."
-  (setq-local c-basic-offset 4)
-  (setq-local tab-width 4)
+  (setq-local c-basic-offset my/csharp-indent-width)
+  (setq-local tab-width my/csharp-indent-width)
   (setq-local indent-tabs-mode nil)
   (when (boundp 'csharp-ts-mode-indent-offset)
-    (setq-local csharp-ts-mode-indent-offset 4))
+    (setq-local csharp-ts-mode-indent-offset my/csharp-indent-width))
+  ;; Bind both terminal TAB (C-i) and the GUI <tab> event explicitly.  Corfu's
+  ;; higher-precedence popup map accepts a candidate when completion is active.
+  (local-set-key (kbd "TAB") #'my/tab-dwim)
+  (local-set-key (kbd "<tab>") #'my/tab-dwim)
+  ;; Treat a run of indentation spaces as one logical tab for Backspace.
+  (local-set-key (kbd "DEL") #'my/csharp-backward-delete)
+  (local-set-key (kbd "<backspace>") #'my/csharp-backward-delete)
   (when (fboundp 'flycheck-mode)
     (flycheck-mode -1))
   (flymake-mode 1)
+  (my/csharp-disable-sideline-ui)
   (my/csharp--configure-project)
   (my/csharp--ensure-workspace-root)
   (if (or (not (eq (my/csharp-current-backend) 'csharp-ls))
@@ -228,10 +313,15 @@ projects."
         lsp-idle-delay my/csharp-lsp-idle-delay
         lsp-log-io nil
         lsp-keep-workspace-alive nil
-        lsp-semantic-tokens-enable t
-        lsp-inlay-hint-enable t
-        lsp-lens-enable t
-        lsp-headerline-breadcrumb-enable t
+        ;; Keep the default editing path light.  These decorations issue
+        ;; additional requests or redraw overlays after edits and cursor moves.
+        lsp-semantic-tokens-enable nil
+        lsp-inlay-hint-enable nil
+        lsp-lens-enable nil
+        lsp-headerline-breadcrumb-enable nil
+        lsp-enable-symbol-highlighting nil
+        lsp-enable-on-type-formatting nil
+        lsp-eldoc-enable-hover nil
         lsp-enable-file-watchers t
         lsp-format-buffer-on-save nil
         lsp-csharp-csharpls-use-dotnet-tool t
@@ -239,6 +329,7 @@ projects."
   :hook ((csharp-mode . my/csharp-mode-setup)
          (csharp-ts-mode . my/csharp-mode-setup))
   :config
+  (add-hook 'lsp-mode-hook #'my/csharp-disable-sideline-ui)
   (dolist (regexp '("[/\\\\]Library\\'"
                     "[/\\\\]Temp\\'"
                     "[/\\\\]Logs\\'"
@@ -253,21 +344,21 @@ projects."
   (define-key lsp-command-map (kbd "F") #'my/csharp-format-on-save-mode)
   (define-key lsp-command-map (kbd "U") #'my/unity-select-solution)
   (define-key lsp-command-map (kbd "R") #'my/csharp-restart-workspace)
+  (define-key lsp-command-map (kbd "u") #'my/csharp-toggle-rich-ui)
   (define-key lsp-command-map (kbd "?") #'my/csharp-doctor))
 
 (use-package lsp-ui
   :after lsp-mode
   :commands lsp-ui-mode
   :custom
-  (lsp-ui-doc-enable t)
+  (lsp-ui-doc-enable nil)
   (lsp-ui-doc-delay 0.6)
   (lsp-ui-doc-show-with-cursor nil)
   (lsp-ui-doc-show-with-mouse t)
-  (lsp-ui-sideline-enable t)
+  (lsp-ui-sideline-enable nil)
   (lsp-ui-sideline-show-diagnostics nil)
   (lsp-ui-sideline-show-hover nil)
-  (lsp-ui-sideline-show-code-actions t)
-  :hook (lsp-mode . lsp-ui-mode))
+  (lsp-ui-sideline-show-code-actions nil))
 
 (use-package consult-lsp
   :after (consult lsp-mode)

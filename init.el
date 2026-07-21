@@ -215,15 +215,81 @@
          ("M-g i"   . consult-imenu)
          ("M-g e"   . consult-flymake)))
 
+(setq tab-always-indent t)
+
+(declare-function yas-active-snippets "yasnippet")
+(declare-function yas-next-field-or-maybe-expand "yasnippet")
+(declare-function yas-maybe-expand-abbrev-key-filter "yasnippet" (command))
+(declare-function yas-expand "yasnippet")
+(declare-function corfu-complete "corfu")
+
+(defun my/tab-dwim ()
+  "Accept completion, expand a snippet, or indent at a logical tab stop.
+
+When Corfu is visible, accept its selected candidate like a modern IDE.  In an
+active Yasnippet, move to the next field; otherwise try snippet expansion.  C#
+buffers insert spaces up to the next logical indentation stop; other modes
+retain their normal syntax-aware indentation."
+  (interactive)
+  (cond
+   ((and (bound-and-true-p completion-in-region-mode)
+         (fboundp 'corfu-complete))
+    (call-interactively #'corfu-complete))
+   ((and (bound-and-true-p yas-minor-mode)
+         (fboundp 'yas-active-snippets)
+         (yas-active-snippets))
+    (call-interactively #'yas-next-field-or-maybe-expand))
+   ((and (bound-and-true-p yas-minor-mode)
+         (fboundp 'yas-maybe-expand-abbrev-key-filter)
+         (yas-maybe-expand-abbrev-key-filter #'yas-expand))
+    (call-interactively #'yas-expand))
+   (t
+    (if (derived-mode-p 'csharp-mode 'csharp-ts-mode)
+        (let* ((width
+                (max 1
+                     (if (boundp 'my/csharp-indent-width)
+                         (symbol-value 'my/csharp-indent-width)
+                       4)))
+               (remainder (% (current-column) width))
+               (spaces (if (zerop remainder)
+                           width
+                         (- width remainder))))
+          (insert (make-string spaces ?\s)))
+      (indent-for-tab-command)))))
+
 (use-package corfu
   :hook ((prog-mode . corfu-mode)
          (text-mode . corfu-mode))
+  :bind (:map corfu-map
+              ("TAB" . corfu-complete)
+              ("<tab>" . corfu-complete))
   :custom
   (corfu-auto t)
   (corfu-cycle t)
-  (corfu-auto-delay 0.15)
+  (corfu-auto-delay 0.25)
   (corfu-auto-prefix 2)
-  (corfu-preview-current nil))
+  (corfu-preselect 'first)
+  (corfu-preview-current nil)
+  (corfu-count 12)
+  (corfu-min-width 30)
+  (corfu-max-width 90)
+  :config
+  ;; Show documentation beside the candidate list only while completion is
+  ;; active.  The modest delay avoids a resolve request for every keystroke.
+  (require 'corfu-popupinfo)
+  (setq corfu-popupinfo-delay '(0.65 . 0.25)
+        corfu-popupinfo-max-width 80
+        corfu-popupinfo-max-height 16)
+  (corfu-popupinfo-mode 1))
+
+(use-package kind-icon
+  :after corfu
+  :custom
+  (kind-icon-blend-background nil)
+  (kind-icon-default-face 'corfu-default)
+  :config
+  ;; LSP supplies the candidate kind; kind-icon renders it in Corfu's margin.
+  (add-to-list 'corfu-margin-formatters #'kind-icon-margin-formatter))
 
 (use-package cape
   :after corfu
