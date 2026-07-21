@@ -956,7 +956,15 @@ always enables it, while nil disables it."
 ;;; Org: 笔记 + 任务 + 知识库
 ;;; ---------------------------------------------------------------------------
 (require 'init-org)
-(require 'init-dashboard)
+(condition-case err
+    (require 'init-dashboard)
+  (error
+   ;; 启动页属于增强功能；包损坏或离线安装失败时仍应进入可用的 Emacs。
+   (setq initial-buffer-choice nil)
+   (display-warning
+    'init-dashboard
+    (format "Dashboard 已停用：%s" (error-message-string err))
+    :warning)))
 
 (let ((ai-workflow-file
        (expand-file-name "~/.config/ai-workflow/emacs/ai-ghostty-codex-workflow.el")))
