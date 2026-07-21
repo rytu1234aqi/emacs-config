@@ -137,32 +137,8 @@
   "Packages intentionally installed by this configuration.")
 (setq package-selected-packages (copy-sequence my/package-selected-packages))
 
-(use-package doom-themes
-  :ensure t
-  :config
-  (defun my/load-ui-theme (&optional frame)
-    "Load the preferred theme for the current graphical frame."
-    (let ((frame (or frame (selected-frame))))
-      (when (display-graphic-p frame)
-        (with-selected-frame frame
-          (unless (memq 'doom-one-light custom-enabled-themes)
-            (mapc #'disable-theme custom-enabled-themes)
-            (load-theme 'doom-one-light t))))))
-  (my/load-ui-theme)
-  (add-hook 'after-make-frame-functions #'my/load-ui-theme))
-
-;;; -----------------------------------------------------------------------------
-;;; 字体：Maple Mono（中英文 2:1 严格对齐），未安装时回退系统默认
-;;; -----------------------------------------------------------------------------
-
-(defun my/setup-default-font (&optional frame)
-  "Set the default face family to Maple Mono when it is available."
-  (when (and (display-graphic-p frame)
-             (member "Maple Mono" (font-family-list)))
-    (set-face-attribute 'default frame :family "Maple Mono")))
-
-(my/setup-default-font)
-(add-hook 'after-make-frame-functions #'my/setup-default-font)
+(add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
+(require 'init-appearance)
 
 ;;; -----------------------------------------------------------------------------
 ;;; macOS：让图形版 Emacs 继承 shell 环境变量
@@ -942,7 +918,6 @@ always enables it, while nil disables it."
 ;;; C# 使用 lsp-mode；其他语言仍可继续使用上面的 Eglot 配置。
 ;;; -----------------------------------------------------------------------------
 
-(add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
 (require 'init-unity)
 (require 'init-csharp)
 (require 'init-dotnet)
