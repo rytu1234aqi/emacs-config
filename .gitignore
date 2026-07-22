@@ -42,6 +42,7 @@ request/
 .org-id-locations
 *_archive
 /org-clock-save.el
+/org-persist/
 /org-roam.db
 
 # ------------------------------
