@@ -27,12 +27,6 @@
 (add-hook 'prog-mode-hook #'display-line-numbers-mode)
 (add-hook 'prog-mode-hook #'hl-line-mode)
 
-(setq mode-line-format
-      '(" " mode-line-modified
-        " " mode-line-buffer-identification
-        " " mode-line-position
-        " " mode-line-modes))
-
 ;;; -----------------------------------------------------------------------------
 ;;; 编辑行为
 ;;; -----------------------------------------------------------------------------
@@ -129,40 +123,23 @@
 
 ;; 顶层依赖清单同时用于重建环境和保护 `package-autoremove'。
 (defconst my/package-selected-packages
-  '(cape cmake-mode consult consult-lsp corfu csharp-mode dap-mode dashboard doom-themes eat
-    eglot-java exec-path-from-shell grip-mode leetcode magit marginalia markdown-mode
-    lsp-mode lsp-treemacs lsp-ui markdown-preview-mode markdown-toc nerd-icons orderless
+  '(cape cmake-mode consult consult-lsp corfu csharp-mode dap-mode dashboard doom-modeline
+    doom-themes eat embark embark-consult
+    eglot-java exec-path-from-shell flymake-popon grip-mode kind-icon leetcode magit marginalia markdown-mode
+    lsp-mode lsp-treemacs lsp-ui markdown-preview-mode markdown-toc nerd-icons
+    nerd-icons-completion nerd-icons-corfu nerd-icons-dired orderless
     org-appear org-modern org-roam org-super-agenda pandoc-mode toc-org
-    transient treemacs use-package valign vertico which-key yasnippet)
+    posframe transient treemacs use-package valign vertico vertico-posframe which-key yasnippet)
   "Packages intentionally installed by this configuration.")
 (setq package-selected-packages (copy-sequence my/package-selected-packages))
 
-(use-package doom-themes
-  :ensure t
-  :config
-  (defun my/load-ui-theme (&optional frame)
-    "Load the preferred theme for the current graphical frame."
-    (let ((frame (or frame (selected-frame))))
-      (when (display-graphic-p frame)
-        (with-selected-frame frame
-          (unless (memq 'doom-one-light custom-enabled-themes)
-            (mapc #'disable-theme custom-enabled-themes)
-            (load-theme 'doom-one-light t))))))
-  (my/load-ui-theme)
-  (add-hook 'after-make-frame-functions #'my/load-ui-theme))
-
-;;; -----------------------------------------------------------------------------
-;;; 字体：Maple Mono（中英文 2:1 严格对齐），未安装时回退系统默认
-;;; -----------------------------------------------------------------------------
-
-(defun my/setup-default-font (&optional frame)
-  "Set the default face family to Maple Mono when it is available."
-  (when (and (display-graphic-p frame)
-             (member "Maple Mono" (font-family-list)))
-    (set-face-attribute 'default frame :family "Maple Mono")))
-
-(my/setup-default-font)
-(add-hook 'after-make-frame-functions #'my/setup-default-font)
+(add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
+(require 'init-appearance)
+(require 'init-icons)
+(require 'init-modeline)
+(require 'init-navigation)
+(require 'init-syntax)
+(require 'init-float)
 
 ;;; -----------------------------------------------------------------------------
 ;;; macOS：让图形版 Emacs 继承 shell 环境变量
@@ -197,36 +174,8 @@
 (my/macos-use-java-21-when-available)
 
 ;;; -----------------------------------------------------------------------------
-;;; 通用补全 / 搜索 / 项目体验
+;;; TAB：缩进 / 补全 / Snippet
 ;;; -----------------------------------------------------------------------------
-
-(use-package which-key
-  :config
-  (which-key-mode 1))
-
-(use-package vertico
-  :init
-  (vertico-mode 1))
-
-(use-package orderless
-  :custom
-  (completion-styles '(orderless basic))
-  (completion-category-defaults nil)
-  (completion-category-overrides '((file (styles partial-completion)))))
-
-(use-package marginalia
-  :after vertico
-  :init
-  (marginalia-mode 1))
-
-(use-package consult
-  :bind (("C-s"     . consult-line)
-         ("C-c b"   . consult-buffer)
-         ("C-c g"   . consult-grep)
-         ("C-c r"   . consult-ripgrep)
-         ("M-g g"   . consult-goto-line)
-         ("M-g i"   . consult-imenu)
-         ("M-g e"   . consult-flymake)))
 
 (setq tab-always-indent t)
 
@@ -295,15 +244,6 @@ retain their normal syntax-aware indentation."
         corfu-popupinfo-max-height 16)
   (corfu-popupinfo-mode 1))
 
-(use-package kind-icon
-  :after corfu
-  :custom
-  (kind-icon-blend-background nil)
-  (kind-icon-default-face 'corfu-default)
-  :config
-  ;; LSP supplies the candidate kind; kind-icon renders it in Corfu's margin.
-  (add-to-list 'corfu-margin-formatters #'kind-icon-margin-formatter))
-
 (use-package cape
   :after corfu
   :init
@@ -369,95 +309,6 @@ retain their normal syntax-aware indentation."
 (with-eval-after-load 'markdown-mode
   (define-key markdown-mode-command-map
               (kbd "t") #'markdown-toc-generate-toc))
-
-;;; -----------------------------------------------------------------------------
-;;; Tree-sitter：兼容版
-;;; M-x my/treesit-install-grammars 可安装缺失 grammar
-;;; -----------------------------------------------------------------------------
-
-(defun my/treesit-ok-p (lang)
-  "Return non-nil when tree-sitter and LANG grammar are both available."
-  (and (fboundp 'treesit-available-p)
-       (treesit-available-p)
-       (fboundp 'treesit-language-available-p)
-       (treesit-language-available-p lang)))
-
-(when (and (fboundp 'treesit-available-p)
-           (treesit-available-p))
-
-  (setq treesit-language-source-alist
-        '((bash       "https://github.com/tree-sitter/tree-sitter-bash")
-          (c          "https://github.com/tree-sitter/tree-sitter-c")
-          (cpp        "https://github.com/tree-sitter/tree-sitter-cpp")
-          (css        "https://github.com/tree-sitter/tree-sitter-css")
-          (go         "https://github.com/tree-sitter/tree-sitter-go")
-          (html       "https://github.com/tree-sitter/tree-sitter-html")
-          (java       "https://github.com/tree-sitter/tree-sitter-java")
-          (javascript "https://github.com/tree-sitter/tree-sitter-javascript" "master" "src")
-          (json       "https://github.com/tree-sitter/tree-sitter-json")
-          (python     "https://github.com/tree-sitter/tree-sitter-python")
-          (rust       "https://github.com/tree-sitter/tree-sitter-rust")
-          (toml       "https://github.com/tree-sitter/tree-sitter-toml")
-          (tsx        "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
-          (typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
-          (yaml       "https://github.com/ikatyang/tree-sitter-yaml")
-          ;; v0.23.2 起 grammar 生成了 ABI 15，而 Emacs 30 仅支持 ABI 13/14。
-          ;; 固定到经 parser.c 验证仍为 ABI 14 的正式标签。
-          (c-sharp    "https://github.com/tree-sitter/tree-sitter-c-sharp" "v0.23.1")))
-
-  (defun my/treesit-install-grammars ()
-    "Install missing tree-sitter grammars."
-    (interactive)
-    (dolist (lang '(bash c cpp css go html java javascript json python rust toml tsx typescript yaml c-sharp))
-      (unless (my/treesit-ok-p lang)
-        (message "Installing tree-sitter grammar for %s..." lang)
-        (condition-case err
-            (treesit-install-language-grammar lang)
-          (error
-           (message "Failed to install %s: %s"
-                    lang (error-message-string err)))))))
-
-  (defun my/treesit-doctor ()
-    "Show tree-sitter status."
-    (interactive)
-    (message
-     "treesit=%s | java=%S | c=%S | cpp=%S | csharp=%S | python=%S | js=%S"
-     (if (and (fboundp 'treesit-available-p) (treesit-available-p)) "ok" "missing")
-     (and (fboundp 'treesit-language-available-p) (treesit-language-available-p 'java t))
-     (and (fboundp 'treesit-language-available-p) (treesit-language-available-p 'c t))
-     (and (fboundp 'treesit-language-available-p) (treesit-language-available-p 'cpp t))
-     (and (fboundp 'treesit-language-available-p) (treesit-language-available-p 'c-sharp t))
-     (and (fboundp 'treesit-language-available-p) (treesit-language-available-p 'python t))
-     (and (fboundp 'treesit-language-available-p) (treesit-language-available-p 'javascript t))))
-
-  (dolist (spec '((c-mode      c-ts-mode        c)
-                  (csharp-mode csharp-ts-mode   c-sharp)
-                  (c++-mode    c++-ts-mode      cpp)
-                  (sh-mode     bash-ts-mode     bash)
-                  (css-mode    css-ts-mode      css)
-                  (js-mode     js-ts-mode       javascript)
-                  (json-mode   json-ts-mode     json)
-                  (python-mode python-ts-mode   python)
-                  (go-mode     go-ts-mode       go)
-                  (java-mode   java-ts-mode     java)
-                  (rust-mode   rust-ts-mode     rust)
-                  (yaml-mode   yaml-ts-mode     yaml)))
-    (pcase-let ((`(,from ,to ,lang) spec))
-      (when (and (fboundp to)
-                 (my/treesit-ok-p lang))
-        (add-to-list 'major-mode-remap-alist (cons from to)))))
-
-  (when (and (fboundp 'typescript-ts-mode)
-             (my/treesit-ok-p 'typescript))
-    (add-to-list 'auto-mode-alist '("\\.ts\\'" . typescript-ts-mode)))
-
-  (when (and (fboundp 'tsx-ts-mode)
-             (my/treesit-ok-p 'tsx))
-    (add-to-list 'auto-mode-alist '("\\.tsx\\'" . tsx-ts-mode)))
-
-  (when (and (fboundp 'toml-ts-mode)
-             (my/treesit-ok-p 'toml))
-    (add-to-list 'auto-mode-alist '("\\.toml\\'" . toml-ts-mode))))
 
 ;;; -----------------------------------------------------------------------------
 ;;; Eglot：统一 LSP 客户端
@@ -633,10 +484,6 @@ Searches build/ directory or project root."
   (when (boundp 'java-ts-mode-indent-offset)
     (setq-local java-ts-mode-indent-offset 4))
   (subword-mode 1)
-  ;; Eglot 默认用 Flymake；避免 flycheck 和 flymake 双诊断。
-  (when (fboundp 'flycheck-mode)
-    (flycheck-mode -1))
-  (flymake-mode 1)
   ;; 不想保存自动格式化时，注释下一行。
   (add-hook 'before-save-hook #'my/eglot-format-buffer-on-save nil t))
 
@@ -917,9 +764,6 @@ always enables it, while nil disables it."
         (setq-local c-ts-mode-indent-offset 4)
         (c-ts-mode-set-style #'my/c-ts-indent-style))
     (c-set-style "stroustrup"))
-  (when (fboundp 'flycheck-mode)
-    (flycheck-mode -1))
-  (flymake-mode 1)
   ;; Format on save by default; `C-c l s' toggles it for this buffer.
   (if (my/cpp-format-on-save-enabled-p)
       (add-hook 'before-save-hook #'my/eglot-format-buffer-on-save nil t)
@@ -942,7 +786,6 @@ always enables it, while nil disables it."
 ;;; C# 使用 lsp-mode；其他语言仍可继续使用上面的 Eglot 配置。
 ;;; -----------------------------------------------------------------------------
 
-(add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
 (require 'init-unity)
 (require 'init-csharp)
 (require 'init-dotnet)
@@ -956,7 +799,15 @@ always enables it, while nil disables it."
 ;;; Org: 笔记 + 任务 + 知识库
 ;;; ---------------------------------------------------------------------------
 (require 'init-org)
-(require 'init-dashboard)
+(condition-case err
+    (require 'init-dashboard)
+  (error
+   ;; 启动页属于增强功能；包损坏或离线安装失败时仍应进入可用的 Emacs。
+   (setq initial-buffer-choice nil)
+   (display-warning
+    'init-dashboard
+    (format "Dashboard 已停用：%s" (error-message-string err))
+    :warning)))
 
 (let ((ai-workflow-file
        (expand-file-name "~/.config/ai-workflow/emacs/ai-ghostty-codex-workflow.el")))
