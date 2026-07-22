@@ -138,6 +138,7 @@
 (require 'init-icons)
 (require 'init-modeline)
 (require 'init-navigation)
+(require 'init-syntax)
 
 ;;; -----------------------------------------------------------------------------
 ;;; macOS：让图形版 Emacs 继承 shell 环境变量
@@ -307,95 +308,6 @@ retain their normal syntax-aware indentation."
 (with-eval-after-load 'markdown-mode
   (define-key markdown-mode-command-map
               (kbd "t") #'markdown-toc-generate-toc))
-
-;;; -----------------------------------------------------------------------------
-;;; Tree-sitter：兼容版
-;;; M-x my/treesit-install-grammars 可安装缺失 grammar
-;;; -----------------------------------------------------------------------------
-
-(defun my/treesit-ok-p (lang)
-  "Return non-nil when tree-sitter and LANG grammar are both available."
-  (and (fboundp 'treesit-available-p)
-       (treesit-available-p)
-       (fboundp 'treesit-language-available-p)
-       (treesit-language-available-p lang)))
-
-(when (and (fboundp 'treesit-available-p)
-           (treesit-available-p))
-
-  (setq treesit-language-source-alist
-        '((bash       "https://github.com/tree-sitter/tree-sitter-bash")
-          (c          "https://github.com/tree-sitter/tree-sitter-c")
-          (cpp        "https://github.com/tree-sitter/tree-sitter-cpp")
-          (css        "https://github.com/tree-sitter/tree-sitter-css")
-          (go         "https://github.com/tree-sitter/tree-sitter-go")
-          (html       "https://github.com/tree-sitter/tree-sitter-html")
-          (java       "https://github.com/tree-sitter/tree-sitter-java")
-          (javascript "https://github.com/tree-sitter/tree-sitter-javascript" "master" "src")
-          (json       "https://github.com/tree-sitter/tree-sitter-json")
-          (python     "https://github.com/tree-sitter/tree-sitter-python")
-          (rust       "https://github.com/tree-sitter/tree-sitter-rust")
-          (toml       "https://github.com/tree-sitter/tree-sitter-toml")
-          (tsx        "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
-          (typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
-          (yaml       "https://github.com/ikatyang/tree-sitter-yaml")
-          ;; v0.23.2 起 grammar 生成了 ABI 15，而 Emacs 30 仅支持 ABI 13/14。
-          ;; 固定到经 parser.c 验证仍为 ABI 14 的正式标签。
-          (c-sharp    "https://github.com/tree-sitter/tree-sitter-c-sharp" "v0.23.1")))
-
-  (defun my/treesit-install-grammars ()
-    "Install missing tree-sitter grammars."
-    (interactive)
-    (dolist (lang '(bash c cpp css go html java javascript json python rust toml tsx typescript yaml c-sharp))
-      (unless (my/treesit-ok-p lang)
-        (message "Installing tree-sitter grammar for %s..." lang)
-        (condition-case err
-            (treesit-install-language-grammar lang)
-          (error
-           (message "Failed to install %s: %s"
-                    lang (error-message-string err)))))))
-
-  (defun my/treesit-doctor ()
-    "Show tree-sitter status."
-    (interactive)
-    (message
-     "treesit=%s | java=%S | c=%S | cpp=%S | csharp=%S | python=%S | js=%S"
-     (if (and (fboundp 'treesit-available-p) (treesit-available-p)) "ok" "missing")
-     (and (fboundp 'treesit-language-available-p) (treesit-language-available-p 'java t))
-     (and (fboundp 'treesit-language-available-p) (treesit-language-available-p 'c t))
-     (and (fboundp 'treesit-language-available-p) (treesit-language-available-p 'cpp t))
-     (and (fboundp 'treesit-language-available-p) (treesit-language-available-p 'c-sharp t))
-     (and (fboundp 'treesit-language-available-p) (treesit-language-available-p 'python t))
-     (and (fboundp 'treesit-language-available-p) (treesit-language-available-p 'javascript t))))
-
-  (dolist (spec '((c-mode      c-ts-mode        c)
-                  (csharp-mode csharp-ts-mode   c-sharp)
-                  (c++-mode    c++-ts-mode      cpp)
-                  (sh-mode     bash-ts-mode     bash)
-                  (css-mode    css-ts-mode      css)
-                  (js-mode     js-ts-mode       javascript)
-                  (json-mode   json-ts-mode     json)
-                  (python-mode python-ts-mode   python)
-                  (go-mode     go-ts-mode       go)
-                  (java-mode   java-ts-mode     java)
-                  (rust-mode   rust-ts-mode     rust)
-                  (yaml-mode   yaml-ts-mode     yaml)))
-    (pcase-let ((`(,from ,to ,lang) spec))
-      (when (and (fboundp to)
-                 (my/treesit-ok-p lang))
-        (add-to-list 'major-mode-remap-alist (cons from to)))))
-
-  (when (and (fboundp 'typescript-ts-mode)
-             (my/treesit-ok-p 'typescript))
-    (add-to-list 'auto-mode-alist '("\\.ts\\'" . typescript-ts-mode)))
-
-  (when (and (fboundp 'tsx-ts-mode)
-             (my/treesit-ok-p 'tsx))
-    (add-to-list 'auto-mode-alist '("\\.tsx\\'" . tsx-ts-mode)))
-
-  (when (and (fboundp 'toml-ts-mode)
-             (my/treesit-ok-p 'toml))
-    (add-to-list 'auto-mode-alist '("\\.toml\\'" . toml-ts-mode))))
 
 ;;; -----------------------------------------------------------------------------
 ;;; Eglot：统一 LSP 客户端
@@ -571,10 +483,6 @@ Searches build/ directory or project root."
   (when (boundp 'java-ts-mode-indent-offset)
     (setq-local java-ts-mode-indent-offset 4))
   (subword-mode 1)
-  ;; Eglot 默认用 Flymake；避免 flycheck 和 flymake 双诊断。
-  (when (fboundp 'flycheck-mode)
-    (flycheck-mode -1))
-  (flymake-mode 1)
   ;; 不想保存自动格式化时，注释下一行。
   (add-hook 'before-save-hook #'my/eglot-format-buffer-on-save nil t))
 
@@ -855,9 +763,6 @@ always enables it, while nil disables it."
         (setq-local c-ts-mode-indent-offset 4)
         (c-ts-mode-set-style #'my/c-ts-indent-style))
     (c-set-style "stroustrup"))
-  (when (fboundp 'flycheck-mode)
-    (flycheck-mode -1))
-  (flymake-mode 1)
   ;; Format on save by default; `C-c l s' toggles it for this buffer.
   (if (my/cpp-format-on-save-enabled-p)
       (add-hook 'before-save-hook #'my/eglot-format-buffer-on-save nil t)

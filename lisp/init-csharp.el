@@ -287,9 +287,6 @@ one-character Backspace behavior."
   ;; Treat a run of indentation spaces as one logical tab for Backspace.
   (local-set-key (kbd "DEL") #'my/csharp-backward-delete)
   (local-set-key (kbd "<backspace>") #'my/csharp-backward-delete)
-  (when (fboundp 'flycheck-mode)
-    (flycheck-mode -1))
-  (flymake-mode 1)
   (my/csharp-disable-sideline-ui)
   (my/csharp--configure-project)
   (my/csharp--ensure-workspace-root)

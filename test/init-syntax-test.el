@@ -1,0 +1,78 @@
+;;; init-syntax-test.el --- Tests for syntax and diagnostics -*- lexical-binding: t; -*-
+
+(require 'ert)
+(require 'cl-lib)
+(require 'init-syntax)
+
+(ert-deftest my/treesit-sources-pin-compatible-releases ()
+  (dolist (language my/treesit-managed-languages)
+    (let ((source (assq language treesit-language-source-alist)))
+      (should source)
+      (should (string-prefix-p "v" (nth 2 source)))))
+  (should (equal (nth 2 (assq 'c treesit-language-source-alist))
+                 "v0.23.6"))
+  (should (equal (nth 2 (assq 'c-sharp treesit-language-source-alist))
+                 "v0.23.1")))
+
+(ert-deftest my/treesit-uses-rich-font-lock-and-available-remaps ()
+  (should (= (default-value 'treesit-font-lock-level) 4))
+  (when (my/treesit-ok-p 'c-sharp)
+    (should (eq (alist-get 'csharp-mode major-mode-remap-alist)
+                'csharp-ts-mode))))
+
+(ert-deftest my/treesit-status-preserves-abi-errors ()
+  (cl-letf (((symbol-function 'treesit-available-p) (lambda () t))
+            ((symbol-function 'treesit-language-available-p)
+             (lambda (_language &optional detailed)
+               (if detailed '(nil version-mismatch 15) nil))))
+    (should-not (my/treesit-ok-p 'c))
+    (should (equal (my/treesit-language-status 'c)
+                   '(nil version-mismatch 15)))
+    (should (equal (my/treesit--status-label
+                    (my/treesit-language-status 'c))
+                   "version-mismatch 15"))))
+
+(ert-deftest my/diagnostics-use-subtle-on-demand-display ()
+  (should (= flymake-no-changes-timeout 0.8))
+  (should-not flymake-show-diagnostics-at-end-of-line)
+  (should (eq flymake-fringe-indicator-position 'right-fringe))
+  (should flymake-suppress-zero-counters)
+  (should-not eldoc-echo-area-use-multiline-p)
+  (should (equal flymake-error-bitmap
+                 '(my/flymake-error-bitmap compilation-error))))
+
+(ert-deftest my/diagnostics-provide-a-consistent-command-map ()
+  (should (eq (lookup-key global-map (kbd "C-c !")) my/diagnostics-map))
+  (should (eq (lookup-key my/diagnostics-map (kbd "n"))
+              #'flymake-goto-next-error))
+  (should (eq (lookup-key my/diagnostics-map (kbd "l"))
+              #'consult-flymake)))
+
+(ert-deftest my/diagnostics-setup-disables-flycheck-and-enables-flymake ()
+  (let (flycheck-argument flymake-argument)
+    (cl-letf (((symbol-function 'flycheck-mode)
+               (lambda (argument) (setq flycheck-argument argument)))
+              ((symbol-function 'flymake-mode)
+               (lambda (argument) (setq flymake-argument argument))))
+      (my/diagnostics-setup))
+    (should (= flycheck-argument -1))
+    (should (= flymake-argument 1))))
+
+(ert-deftest my/csharp-treesit-highlights-members-and-calls ()
+  (skip-unless (and (my/treesit-ok-p 'c-sharp)
+                    (fboundp 'csharp-ts-mode)))
+  (with-temp-buffer
+    (insert "class Game { static Game Instance { get; } void Run() { Game.Instance.Save(); } }")
+    (csharp-ts-mode)
+    (font-lock-ensure)
+    (goto-char (point-min))
+    (search-forward "Game.Instance")
+    (search-backward "Instance")
+    (should (eq (get-text-property (point) 'face)
+                'font-lock-property-use-face))
+    (search-forward "Save")
+    (should (eq (get-text-property (match-beginning 0) 'face)
+                'font-lock-function-call-face))))
+
+(provide 'init-syntax-test)
+;;; init-syntax-test.el ends here
