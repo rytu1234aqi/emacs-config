@@ -1,5 +1,9 @@
 # Emacs C# / Unity 工作站
 
+日常编辑、搜索、补全、诊断、工作区和调试快捷键见
+[Emacs 工作流与快捷键使用说明](./Emacs-Workflow-Guide.zh-CN.md)。本文主要记录
+Unity External Editor、语言服务器和调试器的一次性设置。
+
 这套配置让 C# 独立使用 `lsp-mode`，其他语言继续沿用原有 Eglot。默认
 语言服务器是稳定版 `csharp-ls`，并保留按项目切换官方 Roslyn Language
 Server 的能力。
@@ -26,6 +30,8 @@ Emacs 启动时会自动启动 server，Unity 双击脚本后会复用现有 Ema
   - `C-c l F`：仅为当前缓冲区切换保存时格式化。
   - `C-c l u`：临时切换 `lsp-ui` 鼠标文档浮窗；不会开启行尾提示。
   - `C-c l ?`：C# 环境诊断。
+  - `C-c l a a`：Code Action，`C-c l r r`：重命名符号。
+  - `C-c l = =`：立即格式化当前缓冲区。
 - `TAB`：Corfu 候选存在时接受当前候选，Yasnippet 活跃时展开或跳到下一字段，
   其余时候在 C# 中移动到下一个宽度为 4 的逻辑制表位（文件实际保存空格）。
   缩进区的 `Backspace` 一次退回一个逻辑制表位。
@@ -34,7 +40,9 @@ Emacs 启动时会自动启动 server，Unity 双击脚本后会复用现有 Ema
   - `C-c d a`：附加到正在运行的 Unity Editor。
   - `C-c d c/n/i/o`：继续 / 单步越过 / 单步进入 / 单步跳出。
   - `C-c d e`：求值，`C-c d q`：断开调试。
-- `C-c n`：普通 SDK-style .NET 项目的 restore/build/test/run/debug。
+- 普通 SDK-style .NET 项目：`C-c n r/t/x/d` 分别执行
+  restore/test/run/debug；Build 使用 `M-x my/dotnet-build`。`C-c n` 同时也是
+  Org-roam 前缀，因此 `b` 和 `i` 最终用于 Org-roam。
 
 ## Unity 断点调试顺序
 
