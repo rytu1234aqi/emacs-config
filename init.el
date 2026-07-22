@@ -124,7 +124,7 @@
 ;; 顶层依赖清单同时用于重建环境和保护 `package-autoremove'。
 (defconst my/package-selected-packages
   '(cape cmake-mode consult consult-lsp corfu csharp-mode dap-mode dashboard doom-modeline
-    doom-themes eat
+    doom-themes eat embark embark-consult
     eglot-java exec-path-from-shell grip-mode kind-icon leetcode magit marginalia markdown-mode
     lsp-mode lsp-treemacs lsp-ui markdown-preview-mode markdown-toc nerd-icons
     nerd-icons-completion nerd-icons-corfu nerd-icons-dired orderless
@@ -137,6 +137,7 @@
 (require 'init-appearance)
 (require 'init-icons)
 (require 'init-modeline)
+(require 'init-navigation)
 
 ;;; -----------------------------------------------------------------------------
 ;;; macOS：让图形版 Emacs 继承 shell 环境变量
@@ -171,36 +172,8 @@
 (my/macos-use-java-21-when-available)
 
 ;;; -----------------------------------------------------------------------------
-;;; 通用补全 / 搜索 / 项目体验
+;;; TAB：缩进 / 补全 / Snippet
 ;;; -----------------------------------------------------------------------------
-
-(use-package which-key
-  :config
-  (which-key-mode 1))
-
-(use-package vertico
-  :init
-  (vertico-mode 1))
-
-(use-package orderless
-  :custom
-  (completion-styles '(orderless basic))
-  (completion-category-defaults nil)
-  (completion-category-overrides '((file (styles partial-completion)))))
-
-(use-package marginalia
-  :after vertico
-  :init
-  (marginalia-mode 1))
-
-(use-package consult
-  :bind (("C-s"     . consult-line)
-         ("C-c b"   . consult-buffer)
-         ("C-c g"   . consult-grep)
-         ("C-c r"   . consult-ripgrep)
-         ("M-g g"   . consult-goto-line)
-         ("M-g i"   . consult-imenu)
-         ("M-g e"   . consult-flymake)))
 
 (setq tab-always-indent t)
 
