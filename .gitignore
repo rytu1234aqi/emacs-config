@@ -92,6 +92,7 @@ network-security.data
 # ------------------------------
 # 私人/机器相关配置（可按需忽略）
 # ------------------------------
+/local.el
 custom/auto-save.el
 custom/session.el
 custom/cache.el

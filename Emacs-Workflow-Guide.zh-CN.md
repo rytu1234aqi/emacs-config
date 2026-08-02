@@ -234,6 +234,25 @@ C# 使用 `lsp-mode`；其他语言主要使用 Eglot。两者都占用 `C-c l` 
 | `C-c l R` | 重连 Eglot |
 | `C-c l t` | 开关当前缓冲区的 Eglot |
 
+### C/C++ 构建与调试（macOS / Windows）
+
+两套系统共用 clangd、CMake 和 CodeLLDB 配置。macOS 需要 Xcode Command Line
+Tools 与 CMake，Ninja 可选；Windows 建议安装 LLVM（clang/clangd）、CMake 和
+Ninja，其中 Ninja 用于生成 clangd 所需的 `compile_commands.json`。常见安装目录
+会自动加入 Emacs 的 PATH；非标准目录写入由 `local.el.example` 复制得到的
+`local.el`，不要提交该文件。
+
+| 快捷键或命令 | 用途 |
+| --- | --- |
+| `C-c r` | 以 C23 / C++23 调试参数编译并运行单文件 |
+| `C-c b` | 自动识别 CMake、Ninja 或 Make 并构建项目 |
+| `C-c B` | 常规方式配置 CMake 并生成编译数据库 |
+| `C-c C c/b/t` | 通过 CMake Configure / Build / Test Preset 执行 |
+| `C-c R` | 选择并运行项目可执行文件 |
+| `C-c d` | 用 CodeLLDB 调试当前程序 |
+| `C-c l ?` | 查看编译器、clangd、Tree-sitter、CMake 和调试器状态 |
+| `M-x my/cpp-debug-setup` | 首次下载当前系统对应的 CodeLLDB |
+
 ## 10. Flymake 诊断
 
 错误和警告使用下划线与右侧 Fringe 图标显示。光标停在诊断位置约 0.45 秒后，

@@ -7,6 +7,7 @@
 (require 'eldoc)
 (require 'flymake)
 (require 'fringe)
+(require 'init-platform)
 (require 'subr-x)
 (require 'treesit)
 
@@ -54,6 +55,22 @@
         (yaml       "https://github.com/ikatyang/tree-sitter-yaml" "v0.5.0")
         (c-sharp    "https://github.com/tree-sitter/tree-sitter-c-sharp"
                     "v0.23.1")))
+
+(defun my/treesit-configure-compilers ()
+  "Use portable Clang/GCC names in Tree-sitter build recipes."
+  (let ((cc (my/platform-first-executable '("clang" "gcc" "cc")))
+        (cxx (my/platform-first-executable '("clang++" "g++" "c++"))))
+    (when (or cc cxx)
+      (dolist (recipe treesit-language-source-alist)
+        ;; Recipes are (LANG URL REVISION SOURCE-DIR CC C++).  Pad shorter
+        ;; recipes before adding compilers so native Windows need not provide
+        ;; Unix-style cc/c++ aliases.
+        (while (< (length recipe) 6)
+          (nconc recipe (list nil)))
+        (when cc (setf (nth 4 recipe) cc))
+        (when cxx (setf (nth 5 recipe) cxx))))))
+
+(my/treesit-configure-compilers)
 
 (setq-default treesit-font-lock-level 4)
 

@@ -43,6 +43,11 @@
         auto-save-file-name-transforms `((".*" ,auto-save-dir t))
         auto-save-list-file-prefix (expand-file-name ".saves-" auto-save-dir)))
 
+(add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
+(require 'init-platform)
+(my/platform-load-local-config)
+(my/platform-refresh-environment)
+
 (setq save-place-file (expand-file-name "places" my/state-directory)
       recentf-save-file (expand-file-name "recentf" my/state-directory)
       savehist-file (expand-file-name "history" my/state-directory)
@@ -116,8 +121,8 @@
 (require 'use-package)
 (setq use-package-always-ensure t)
 
-;; 避免 Custom 自动把内容写回 init.el。
-(setq custom-file (expand-file-name "custom.el" user-emacs-directory))
+;; 避免 Custom 自动写回 init.el，也不在 Git 仓库中共享机器相关值。
+(setq custom-file (expand-file-name "custom.el" my/state-directory))
 (when (file-exists-p custom-file)
   (load custom-file))
 
@@ -133,7 +138,6 @@
   "Packages intentionally installed by this configuration.")
 (setq package-selected-packages (copy-sequence my/package-selected-packages))
 
-(add-to-list 'load-path (expand-file-name "lisp" user-emacs-directory))
 (require 'init-appearance)
 (require 'init-icons)
 (require 'init-modeline)
@@ -151,10 +155,13 @@
   :config
   (dolist (var '("PATH" "MANPATH"
                  "JAVA_HOME" "JDK_HOME" "MAVEN_HOME" "GRADLE_HOME" "GRAALVM_HOME"
+                 "DOTNET_ROOT" "UNITY_EDITOR"
                  "LIBRARY_PATH" "CPATH" "C_INCLUDE_PATH" "CPLUS_INCLUDE_PATH"
-                 "OPENAI_API_KEY" "ANTHROPIC_API_KEY"))
+                 "OPENAI_API_KEY" "ANTHROPIC_API_KEY"
+                 "NOTION_API_TOKEN" "NOTION_TOKEN"))
     (add-to-list 'exec-path-from-shell-variables var))
-  (exec-path-from-shell-initialize))
+  (exec-path-from-shell-initialize)
+  (my/platform-refresh-environment))
 
 (require 'subr-x)
 (require 'cl-lib)
@@ -306,6 +313,47 @@ retain their normal syntax-aware indentation."
 (use-package cmake-mode
   :mode ("CMakeLists\\.txt\\'" "\\.cmake\\'"))
 
+(defgroup my/cpp nil
+  "Modern C and C++ editing, building, and debugging."
+  :group 'languages
+  :prefix "my/cpp-")
+
+(defcustom my/cpp-clangd-command
+  '("clangd"
+    "--background-index"
+    "-j=4"
+    "--clang-tidy"
+    "--enable-config"
+    "--all-scopes-completion"
+    "--function-arg-placeholders"
+    "--header-insertion=iwyu"
+    "--header-insertion-decorators"
+    "--completion-style=bundled"
+    "--pch-storage=memory"
+    "--fallback-style={BasedOnStyle: LLVM, IndentWidth: 4, ContinuationIndentWidth: 4, TabWidth: 4, UseTab: Never, ColumnLimit: 100}")
+  "Command used by Eglot to start clangd for C and C++ buffers.
+
+Project-specific compiler flags and diagnostics belong in compile_commands.json
+and .clangd; this command only controls editor-facing clangd behavior."
+  :type '(repeat string)
+  :group 'my/cpp)
+
+(defcustom my/cpp-skip-eglot-for-leetcode t
+  "Whether automatic clangd startup is skipped for LeetCode-style files.
+
+Set this to nil when LSP completion is preferred over suppressing diagnostics
+for standalone judge snippets.  Eglot can always be toggled with `C-c l t'."
+  :type 'boolean
+  :group 'my/cpp)
+
+(defcustom my/cmake-prefer-ninja t
+  "Prefer Ninja for conventional CMake builds when it is available.
+
+On native Windows, Ninja is required for this workflow because Visual Studio
+generators do not produce compile_commands.json for clangd."
+  :type 'boolean
+  :group 'my/cpp)
+
 (with-eval-after-load 'markdown-mode
   (define-key markdown-mode-command-map
               (kbd "t") #'markdown-toc-generate-toc))
@@ -341,8 +389,8 @@ retain their normal syntax-aware indentation."
           (string-match-p "^[0-9]+\\.c$"   name)))))
 
 (defun my/eglot-maybe-ensure ()
-  "启动 Eglot，但 LeetCode 单文件不启动，避免满屏报错。"
-  (unless (my/leetcode-p)
+  "Start Eglot unless this is an optionally excluded judge solution."
+  (unless (and my/cpp-skip-eglot-for-leetcode (my/leetcode-p))
     (eglot-ensure)))
 
 (defun my/toggle-eglot-buffer ()
@@ -357,12 +405,7 @@ retain their normal syntax-aware indentation."
   ;; 单独为每个 mode 注册，兼容所有 Eglot 版本
   (dolist (mode '(c-mode c-ts-mode c++-mode c++-ts-mode))
     (add-to-list 'eglot-server-programs
-                 `(,mode . ("clangd"
-                            "--background-index"
-                            "--clang-tidy"
-                            "--header-insertion=iwyu"
-                            "--completion-style=bundled"
-                            "--fallback-style={BasedOnStyle: LLVM, IndentWidth: 4, ContinuationIndentWidth: 4, TabWidth: 4, UseTab: Never, ColumnLimit: 100}")))))
+                 (cons mode (copy-sequence my/cpp-clangd-command)))))
 
 (defun my/eglot-format-buffer-on-save ()
   "Format current buffer on save when Eglot manages it."
@@ -377,6 +420,102 @@ retain their normal syntax-aware indentation."
   "Return PROGRAM's executable path or signal a helpful user error."
   (or (executable-find program)
       (user-error "Required executable not found: %s" program)))
+
+(defun my/cmake-default-generator-arguments ()
+  "Return generator arguments for a portable conventional CMake build."
+  (cond
+   ((and my/cmake-prefer-ninja (executable-find "ninja"))
+    '("-G" "Ninja"))
+   ((eq system-type 'windows-nt)
+    (user-error
+     "Ninja is required on Windows so CMake can generate compile_commands.json"))
+   (t nil)))
+
+(defun my/cmake-default-configure-command ()
+  "Return the conventional CMake configure command for this platform."
+  (mapconcat
+   #'shell-quote-argument
+   (append (list (my/require-executable "cmake") "-S" "." "-B" "build")
+           (my/cmake-default-generator-arguments)
+           '("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"))
+   " "))
+
+(defun my/cmake-presets-p (&optional root)
+  "Return non-nil when ROOT has project or user CMake presets."
+  (let ((directory (or root (my/project-root-or-current))))
+    (or (file-exists-p (expand-file-name "CMakePresets.json" directory))
+        (file-exists-p (expand-file-name "CMakeUserPresets.json" directory)))))
+
+(defun my/cmake--preset-names (root kind)
+  "Return available CMake preset names of KIND below ROOT.
+
+KIND is one of the symbols `configure', `build', or `test'.  Asking CMake
+itself, instead of parsing JSON here, correctly handles includes, inheritance,
+conditions, and user presets."
+  (let ((default-directory root)
+        (cmake (my/require-executable "cmake"))
+        names)
+    (with-temp-buffer
+      (let ((status (call-process cmake nil t nil
+                                  (format "--list-presets=%s" kind))))
+        (unless (and (integerp status) (zerop status))
+          (user-error "Unable to list CMake %s presets: %s"
+                      kind (string-trim (buffer-string))))
+        (goto-char (point-min))
+        (while (re-search-forward
+                "^[[:space:]]*\"\\([^\"]+\\)\"" nil t)
+          (push (match-string-no-properties 1) names))))
+    (delete-dups (nreverse names))))
+
+(defun my/cmake--select-preset (root kind)
+  "Select an available CMake preset of KIND below ROOT."
+  (let ((names (my/cmake--preset-names root kind)))
+    (pcase names
+      ('() (user-error "No available CMake %s presets in %s" kind root))
+      (`(,only) only)
+      (_ (completing-read (format "CMake %s preset: " kind)
+                          names nil t nil nil (car names))))))
+
+(defun my/cmake--compile-command (root program arguments)
+  "Run PROGRAM with ARGUMENTS through `compile' from ROOT."
+  (let ((default-directory root))
+    (compile
+     (mapconcat #'shell-quote-argument
+                (cons (my/require-executable program) arguments)
+                " "))))
+
+(defun my/cmake-configure-preset ()
+  "Configure the current project with a CMake configure preset."
+  (interactive)
+  (let* ((root (my/project-root-or-current))
+         (preset (my/cmake--select-preset root 'configure)))
+    ;; Ensure clangd receives the exact flags used by the selected toolchain.
+    (my/cmake--compile-command
+     root "cmake"
+     (list "--preset" preset "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"))))
+
+(defun my/cmake-build-preset ()
+  "Build the current project with a CMake build preset."
+  (interactive)
+  (let* ((root (my/project-root-or-current))
+         (preset (my/cmake--select-preset root 'build)))
+    (my/cmake--compile-command root "cmake"
+                               (list "--build" "--preset" preset))))
+
+(defun my/cmake-test-preset ()
+  "Test the current project with a CMake/CTest test preset."
+  (interactive)
+  (let* ((root (my/project-root-or-current))
+         (preset (my/cmake--select-preset root 'test)))
+    (my/cmake--compile-command root "ctest"
+                               (list "--preset" preset
+                                     "--output-on-failure"))))
+
+(defvar-keymap my/cmake-preset-map
+  :doc "CMake Preset commands."
+  "c" #'my/cmake-configure-preset
+  "b" #'my/cmake-build-preset
+  "t" #'my/cmake-test-preset)
 
 (defun my/project-find-cmake-root (dir)
   "Treat the nearest CMakeLists.txt above DIR as a project root."
@@ -401,40 +540,25 @@ Supports CMake, Make, and Ninja."
           (file-exists-p (expand-file-name "makefile" root)))
       "make")
      ((file-exists-p (expand-file-name "CMakeLists.txt" root))
-      (concat "cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
-              " && cmake --build build"))
+      (concat (my/cmake-default-configure-command)
+              " && "
+              (mapconcat #'shell-quote-argument
+                         (list (my/require-executable "cmake")
+                               "--build" "build")
+                         " ")))
      (t nil))))
 
 (defun my/cmake-configure-project ()
-  "Configure current CMake project: generate build/ + compile_commands.json.
-Creates a symlink compile_commands.json → build/compile_commands.json
-so that clangd can find it automatically."
+  "Configure the current CMake project and generate its compilation database."
   (interactive)
   (let* ((root (my/project-root-or-current))
          (cmake-file (expand-file-name "CMakeLists.txt" root)))
     (unless (file-exists-p cmake-file)
       (user-error "No CMakeLists.txt found in %s" root))
-    (my/require-executable "cmake")
     (let ((default-directory root))
-      (let ((buffer
-             (compile
-              "cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON")))
-        ;; `compile' is asynchronous, so create the link only after success.
-        (with-current-buffer buffer
-          (add-hook
-           'compilation-finish-functions
-           (lambda (_buffer status)
-             (when (string-prefix-p "finished" status)
-               (let ((json (expand-file-name "compile_commands.json" root))
-                     (json-in-build
-                      (expand-file-name "build/compile_commands.json" root)))
-                 (when (and (file-exists-p json-in-build)
-                            (not (file-exists-p json))
-                            (not (file-symlink-p json)))
-                   (make-symbolic-link "build/compile_commands.json" json)
-                   (message
-                    "Created symlink: compile_commands.json -> build/compile_commands.json")))))
-           nil t))))))
+      ;; clangd searches build/ itself, avoiding a symlink that is fragile on
+      ;; Windows without Developer Mode or elevated privileges.
+      (compile (my/cmake-default-configure-command)))))
 
 (defun my/cpp-project-build ()
   "Build current C/C++ project using detected build system."
@@ -456,8 +580,8 @@ Searches build/ directory or project root."
          (candidates
           (append
            (file-expand-wildcards "build/*" t)
-           (file-expand-wildcards "*.out" t)
-           (file-expand-wildcards "a.out" t)))
+           (file-expand-wildcards
+            (if (eq system-type 'windows-nt) "*.exe" "*.out") t)))
          (executables
           (delete-dups
            (cl-remove-if-not (lambda (f)
@@ -619,76 +743,114 @@ KIND can be `test' or `build'."
 ;;; C/C++
 ;;; -----------------------------------------------------------------------------
 
-;; Better GDB UI: show source + locals + stack + breakpoints side by side
-(setq gdb-many-windows t)
-(setq gdb-show-main t)
+;; 调试由 lisp/init-debug.el 提供：dap-mode + codelldb（mac/win 自动选用
+;; 各自平台的适配器），C++ 缓冲区里 C-c d 启动；首次使用先跑
+;; M-x my/cpp-debug-setup 下载适配器。
+
+(defcustom my/cpp-c-standard "c23"
+  "Language standard used for compiling a standalone C file."
+  :type 'string
+  :group 'my/cpp)
+
+(defcustom my/cpp-cxx-standard "c++23"
+  "Language standard used for compiling a standalone C++ file."
+  :type 'string
+  :group 'my/cpp)
+
+(defcustom my/cpp-c-compiler nil
+  "Optional C compiler executable or absolute path for standalone files."
+  :type '(choice (const :tag "Auto-detect" nil) string)
+  :group 'my/cpp)
+
+(defcustom my/cpp-cxx-compiler nil
+  "Optional C++ compiler executable or absolute path for standalone files."
+  :type '(choice (const :tag "Auto-detect" nil) string)
+  :group 'my/cpp)
+
+(defcustom my/cpp-c-compiler-candidates '("clang" "gcc" "cc")
+  "C compilers tried in order when no explicit compiler is configured."
+  :type '(repeat string)
+  :group 'my/cpp)
+
+(defcustom my/cpp-cxx-compiler-candidates '("clang++" "g++" "c++")
+  "C++ compilers tried in order when no explicit compiler is configured."
+  :type '(repeat string)
+  :group 'my/cpp)
+
+(defcustom my/cpp-single-file-flags
+  '("-Wall" "-Wextra" "-Wpedantic" "-g3" "-O0")
+  "Compiler flags used by `compile-and-run-c++' for standalone files.
+
+Project builds continue to take their flags from CMake, Make, or Ninja."
+  :type '(repeat string)
+  :group 'my/cpp)
+
+(defcustom my/cpp-enable-inlay-hints t
+  "Whether clangd inlay hints are enabled when Eglot connects."
+  :type 'boolean
+  :group 'my/cpp)
+
+(defvar-local my/cpp-last-executable nil
+  "Last standalone executable built for this C or C++ buffer.")
+
+(defun my/cpp--c-source-p (file)
+  "Return non-nil when FILE is a C rather than C++ source file."
+  ;; An uppercase .C conventionally denotes C++, so do not downcase here.
+  (string-equal (file-name-extension file) "c"))
+
+(defun my/cpp-compiler (c-source-p)
+  "Return a compatible standalone compiler for C-SOURCE-P."
+  (let ((compiler
+         (my/platform-first-executable
+          (if c-source-p
+              my/cpp-c-compiler-candidates
+            my/cpp-cxx-compiler-candidates)
+          (if c-source-p my/cpp-c-compiler my/cpp-cxx-compiler))))
+    (or compiler
+        (user-error
+         "No %s compiler found; install LLVM or set my/cpp-%s-compiler in local.el"
+         (if c-source-p "C" "C++")
+         (if c-source-p "c" "cxx")))))
+
+(defun my/cpp-single-file-executable (&optional file)
+  "Return the deterministic cached executable path for FILE.
+
+The executable lives under `my/state-directory', keeping build artifacts out
+of the source tree while making the same binary available to CodeLLDB."
+  (let* ((source (expand-file-name (or file buffer-file-name
+                                       (user-error "No C/C++ source file"))))
+         (directory (expand-file-name "cpp-build/" my/state-directory))
+         (digest (substring (secure-hash 'sha1 source) 0 10))
+         (suffix (if (eq system-type 'windows-nt) ".exe" "")))
+    (make-directory directory t)
+    (expand-file-name
+     (format "%s-%s%s" (file-name-base source) digest suffix)
+     directory)))
+
+(defun my/cpp-single-file-compile-command (file)
+  "Return a compile-and-run shell command for C or C++ FILE."
+  (let* ((c-source-p (my/cpp--c-source-p file))
+         (compiler (my/cpp-compiler c-source-p))
+         (standard (if c-source-p my/cpp-c-standard my/cpp-cxx-standard))
+         (exe (my/cpp-single-file-executable file))
+         (arguments (append (list compiler (format "-std=%s" standard))
+                            my/cpp-single-file-flags
+                            (list file "-o" exe))))
+    (concat (mapconcat #'shell-quote-argument arguments " ")
+            " && " (shell-quote-argument exe))))
 
 (defun compile-and-run-c++ ()
-  "Compile and run current C/C++ file."
+  "Compile and run the current C/C++ file with modern development flags.
+
+The deterministic executable is retained in `my/state-directory' so that
+`my/cpp-debug' can immediately debug the same build."
   (interactive)
   (unless buffer-file-name
     (user-error "Current buffer is not visiting a C/C++ source file"))
   (save-buffer)
-  (let* ((file buffer-file-name)
-         (c-source-p (string-equal (downcase (or (file-name-extension file) ""))
-                                   "c"))
-         (compiler (if c-source-p "cc" "c++"))
-         (standard (if c-source-p "-std=c17" "-std=c++17"))
-         (exe (concat (make-temp-name
-                       (expand-file-name "emacs-c-run-" temporary-file-directory))
-                      (if (eq system-type 'windows-nt) ".exe" "")))
-         (cmd (format "%s %s -O2 -Wall %s -o %s && %s"
-                      compiler
-                      standard
-                      (shell-quote-argument file)
-                      (shell-quote-argument exe)
-                      (shell-quote-argument exe))))
-    (my/require-executable compiler)
-    (let ((buffer (compile cmd)))
-      ;; Delete only the unique temporary executable, on success or failure.
-      (with-current-buffer buffer
-        (add-hook 'compilation-finish-functions
-                  (lambda (_buffer _status)
-                    (when (file-exists-p exe)
-                      (delete-file exe)))
-                  nil t)))))
-
-(defun my/cpp-debug ()
-  "Start GDB for current C/C++ program.
-Automatically finds executable: single-file exe first, then project build output."
-  (interactive)
-  (my/require-executable "gdb")
-  (let* ((file (buffer-file-name))
-         (default-directory (my/project-root-or-current))
-         (candidates '()))
-    ;; 1. Try single-file executable (same name as source)
-    (when file
-      (let ((single-exe (file-name-sans-extension file)))
-        (when (and (file-regular-p single-exe)
-                   (file-executable-p single-exe))
-          (push single-exe candidates))))
-    ;; 2. Try a.out in current directory
-    (when (and (file-regular-p "a.out")
-               (file-executable-p "a.out"))
-      (push (expand-file-name "a.out") candidates))
-    ;; 3. Try executables in build/
-    (setq candidates
-          (append candidates
-                  (cl-remove-if-not
-                   (lambda (f) (and (file-regular-p f)
-                                    (file-executable-p f)))
-                   (file-expand-wildcards "build/*" t))))
-    ;; 4. Deduplicate and pick
-    (setq candidates (delete-dups candidates))
-    (let ((exe (cond ((null candidates)
-                      nil)
-                     ((= (length candidates) 1)
-                      (car candidates))
-                     (t
-                      (completing-read "Debug executable: " candidates nil t)))))
-      (unless (and exe (not (string-empty-p exe)))
-        (user-error "No executable found. Compile first with C-c r (single file) or C-c b (project)"))
-      (gdb (concat "gdb -i=mi " (shell-quote-argument exe))))))
+  (setq my/cpp-last-executable
+        (my/cpp-single-file-executable buffer-file-name))
+  (compile (my/cpp-single-file-compile-command buffer-file-name)))
 
 (defun my/c-ts-indent-style ()
   "Return K&R indentation with fixed-width continued arguments.
@@ -703,7 +865,7 @@ instead of being aligned all the way to the opening parenthesis."
        ((parent-is "parameter_list") parent-bol c-ts-mode-indent-offset))
      base-rules)))
 
-(defcustom my/cpp-format-on-save t
+(defcustom my/cpp-format-on-save 'project
   "Control Eglot formatting when saving C/C++ buffers.
 The value `project' enables it only when a .clang-format or
 _clang-format file exists above the current file.  A non-nil value
@@ -711,7 +873,7 @@ always enables it, while nil disables it."
   :type '(choice (const :tag "Projects with clang-format" project)
                  (const :tag "Always" t)
                  (const :tag "Never" nil))
-  :group 'tools)
+  :group 'my/cpp)
 
 (defun my/cpp-format-config-p ()
   "Return non-nil when the current C/C++ project has a format file."
@@ -743,6 +905,102 @@ always enables it, while nil disables it."
   (message "C/C++ format on save %s"
            (if (my/cpp-format-on-save-enabled-p) "enabled" "disabled")))
 
+(defun my/cpp-compilation-database (&optional directory)
+  "Return the compile_commands.json visible from DIRECTORY.
+
+This follows clangd's common lookup layout: each ancestor and its build/
+subdirectory."
+  (let ((current (file-name-as-directory
+                  (expand-file-name
+                   (or directory
+                       (and buffer-file-name
+                            (file-name-directory buffer-file-name))
+                       default-directory))))
+        found)
+    (while (and current (not found))
+      (dolist (relative '("compile_commands.json"
+                          "build/compile_commands.json"))
+        (let ((candidate (expand-file-name relative current)))
+          (when (and (not found) (file-readable-p candidate))
+            (setq found candidate))))
+      (unless found
+        (let ((parent (file-name-directory (directory-file-name current))))
+          (setq current (unless (or (null parent) (equal parent current))
+                          parent)))))
+    found))
+
+(defun my/cpp-eglot-managed-setup ()
+  "Enable optional clangd UI features in Eglot-managed C/C++ buffers."
+  (when (and (bound-and-true-p eglot-managed-mode)
+             my/cpp-enable-inlay-hints
+             (memq major-mode '(c-mode c-ts-mode c++-mode c++-ts-mode))
+             (fboundp 'eglot-inlay-hints-mode))
+    (eglot-inlay-hints-mode 1)))
+
+(add-hook 'eglot-managed-mode-hook #'my/cpp-eglot-managed-setup)
+
+(defun my/cpp-doctor ()
+  "Report whether the local Emacs C/C++ toolchain is ready."
+  (interactive)
+  (let* ((source buffer-file-name)
+         (mode major-mode)
+         (root (my/project-root-or-current))
+         (database (my/cpp-compilation-database))
+         (managed (and (fboundp 'eglot-managed-p) (eglot-managed-p)))
+         (format-enabled (my/cpp-format-on-save-enabled-p))
+         (standalone-solution (and my/cpp-skip-eglot-for-leetcode
+                                   source (my/leetcode-p)))
+         (c-grammar (and (fboundp 'my/treesit-ok-p) (my/treesit-ok-p 'c)))
+         (cpp-grammar (and (fboundp 'my/treesit-ok-p)
+                           (my/treesit-ok-p 'cpp)))
+         (adapter (and (boundp 'dap-codelldb-debug-program)
+                       (stringp dap-codelldb-debug-program)
+                       (file-exists-p dap-codelldb-debug-program)
+                       dap-codelldb-debug-program)))
+    (with-help-window "*C/C++ Doctor*"
+      (princ (format "Emacs:              %s\n" emacs-version))
+      (princ (format "Current mode:       %s\n" mode))
+      (princ (format "Source:             %s\n" (or source "none")))
+      (princ (format "Project root:       %s\n\n" root))
+      (princ (format "Tree-sitter C:      %s\n" (if c-grammar "ready" "missing")))
+      (princ (format "Tree-sitter C++:    %s\n" (if cpp-grammar "ready" "missing")))
+      (princ (format "C compiler:         %s\n"
+                     (or (ignore-errors (my/cpp-compiler t)) "missing")))
+      (princ (format "C++ compiler:       %s\n"
+                     (or (ignore-errors (my/cpp-compiler nil)) "missing")))
+      (dolist (tool '("clangd" "cmake" "ctest" "ninja"))
+        (princ (format "%-20s%s\n"
+                       (concat tool ":")
+                       (or (executable-find tool) "missing"))))
+      (princ (format "clang-format:       %s\n"
+                     (or (executable-find "clang-format")
+                         "optional; clangd formats internally")))
+      (princ (format "clang-tidy:         %s\n"
+                     (or (executable-find "clang-tidy")
+                         "optional; clangd embeds tidy checks")))
+      (princ (format "Compilation DB:     %s\n"
+                     (or database "missing")))
+      (princ (format "CMake Presets:      %s\n"
+                     (if (my/cmake-presets-p root) "available" "none")))
+      (princ (format "Eglot/clangd:       %s\n"
+                     (if managed "connected" "not connected")))
+      (princ (format "Format on save:     %s\n"
+                     (if format-enabled "enabled" "disabled")))
+      (princ (format "CodeLLDB:           %s\n\n"
+                     (or adapter "not installed")))
+      (princ "Recommended actions:\n")
+      (unless (and c-grammar cpp-grammar)
+        (princ "  - Run M-x my/treesit-install-grammars.\n"))
+      (unless (executable-find "clangd")
+        (princ "  - Install LLVM/clangd and make it visible on PATH.\n"))
+      (when (and (file-exists-p (expand-file-name "CMakeLists.txt" root))
+                 (not database))
+        (princ "  - Run C-c B, or C-c C c when the project has presets.\n"))
+      (unless adapter
+        (princ "  - Run M-x my/cpp-debug-setup before the first debug session.\n"))
+      (when standalone-solution
+        (princ "  - Auto Eglot is skipped here; use C-c l t when completion is wanted.\n")))))
+
 (defun my/cpp-mode-setup ()
   "My C/C++ editing setup."
   (local-set-key (kbd "C-c r") #'compile-and-run-c++)
@@ -751,8 +1009,14 @@ always enables it, while nil disables it."
   (local-set-key (kbd "C-c b") #'my/cpp-project-build)
   (local-set-key (kbd "C-c B") #'my/cmake-configure-project)
   (local-set-key (kbd "C-c R") #'my/cpp-project-run)
+  (local-set-key (kbd "C-c C") my/cmake-preset-map)
   (local-set-key (kbd "C-c l f") #'my/cpp-format-buffer)
   (local-set-key (kbd "C-c l s") #'my/cpp-toggle-format-on-save)
+  (local-set-key (kbd "C-c l i") #'eglot-inlay-hints-mode)
+  (local-set-key (kbd "C-c l ?") #'my/cpp-doctor)
+  ;; 与 C# 一致：弹窗可见时 TAB 接受补全，否则 snippet/语法缩进。
+  (local-set-key (kbd "TAB") #'my/tab-dwim)
+  (local-set-key (kbd "<tab>") #'my/tab-dwim)
   (setq-local comment-start "// ")
   (setq-local comment-end "")
   (setq-local indent-tabs-mode nil)
@@ -764,7 +1028,7 @@ always enables it, while nil disables it."
         (setq-local c-ts-mode-indent-offset 4)
         (c-ts-mode-set-style #'my/c-ts-indent-style))
     (c-set-style "stroustrup"))
-  ;; Format on save by default; `C-c l s' toggles it for this buffer.
+  ;; Format on save when a style file is present; `C-c l s' toggles per buffer.
   (if (my/cpp-format-on-save-enabled-p)
       (add-hook 'before-save-hook #'my/eglot-format-buffer-on-save nil t)
     (remove-hook 'before-save-hook #'my/eglot-format-buffer-on-save t)))

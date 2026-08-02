@@ -14,6 +14,19 @@
   (should (equal (nth 2 (assq 'c-sharp treesit-language-source-alist))
                  "v0.23.1")))
 
+(ert-deftest my/treesit-recipes-use-portable-detected-compilers ()
+  (let ((treesit-language-source-alist
+         '((c "https://example.invalid/c" "v1"))))
+    (cl-letf (((symbol-function 'my/platform-first-executable)
+               (lambda (candidates &optional _explicit)
+                 (if (equal (car candidates) "clang")
+                     "C:/LLVM/bin/clang.exe"
+                   "C:/LLVM/bin/clang++.exe"))))
+      (my/treesit-configure-compilers)
+      (let ((recipe (assq 'c treesit-language-source-alist)))
+        (should (equal (nth 4 recipe) "C:/LLVM/bin/clang.exe"))
+        (should (equal (nth 5 recipe) "C:/LLVM/bin/clang++.exe"))))))
+
 (ert-deftest my/treesit-uses-rich-font-lock-and-available-remaps ()
   (should (= (default-value 'treesit-font-lock-level) 4))
   (when (my/treesit-ok-p 'c-sharp)

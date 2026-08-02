@@ -1,0 +1,22 @@
+;;; local.el --- Example machine-local settings -*- lexical-binding: t; -*-
+
+;; Copy this file to local.el on each computer.  local.el is ignored by Git.
+;; Keep only machine-specific paths here; the shared defaults live in init.el.
+
+;; (setq my/platform-extra-exec-paths
+;;       '("/path/to/extra/bin"))
+
+;; Optional compiler overrides.  Executable names on PATH also work.
+;; (setq my/cpp-c-compiler "clang"
+;;       my/cpp-cxx-compiler "clang++")
+
+;; Optional Unity override when Unity Hub is installed in a custom location.
+;; macOS example:
+;; (setenv "UNITY_EDITOR"
+;;         "/Applications/Unity/Hub/Editor/6000.0.50f1/Unity.app/Contents/MacOS/Unity")
+;; Windows example:
+;; (setenv "UNITY_EDITOR"
+;;         "D:/Unity/6000.0.50f1/Editor/Unity.exe")
+
+(provide 'local)
+;;; local.el ends here

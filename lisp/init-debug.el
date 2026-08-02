@@ -1,17 +1,24 @@
-;;; init-debug.el --- DAP debugging for C#, .NET, and Unity -*- lexical-binding: t; -*-
+;;; init-debug.el --- DAP debugging for C/C++, C#, .NET, and Unity -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;; dap-mode provides real source breakpoints, stepping, locals, watches, and a
-;; debug console.  Adapter downloads stay explicit: use `my/unity-debug-setup'
-;; or `my/dotnet-debug-setup' once, rather than downloading at every startup.
+;; debug console.  Adapter downloads stay explicit: use `my/cpp-debug-setup',
+;; `my/unity-debug-setup', or `my/dotnet-debug-setup' once, rather than
+;; downloading at every startup.
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'subr-x)
 
 (defvar dap-netcore-download-url)
+(defvar dap-codelldb-debug-program)
 (declare-function dap-netcore-update-debugger "dap-netcore")
 (declare-function dap-unity-setup "dap-unity")
+(declare-function dap-codelldb-setup "dap-codelldb")
+(declare-function my/cpp-single-file-executable "init" (&optional file))
+(declare-function my/project-root-or-current "init")
+(defvar my/cpp-last-executable)
 
 (defgroup my/debug nil
   "Debug adapter integration."
@@ -65,6 +72,72 @@ The Unity editor must have Editor Attaching enabled.  Run
     (user-error "This dap-mode version has no netcoredbg installer"))
   (call-interactively #'dap-netcore-update-debugger))
 
+(defun my/cpp-debug-setup ()
+  "Download and install the CodeLLDB adapter for C/C++ once.
+
+dap-codelldb picks the release asset for the current platform by itself:
+aarch64/x86_64-darwin on macOS, x86_64-windows on Windows."
+  (interactive)
+  (my/debug--require 'dap-codelldb)
+  (unless (fboundp 'dap-codelldb-setup)
+    (user-error "This dap-mode version has no codelldb installer"))
+  (call-interactively #'dap-codelldb-setup))
+
+(defun my/cpp--debug-executable-candidates ()
+  "Return deduplicated C/C++ executables near the current buffer.
+Order: cached build, source-name executable, platform default, then build/*."
+  (let* ((file (buffer-file-name))
+         (default-directory (my/project-root-or-current))
+         (cached (cond
+                  ((and (boundp 'my/cpp-last-executable)
+                        (stringp my/cpp-last-executable))
+                   my/cpp-last-executable)
+                  ((and file (fboundp 'my/cpp-single-file-executable))
+                   (my/cpp-single-file-executable file))))
+         (source-exe
+          (and file
+               (concat (file-name-sans-extension file)
+                       (if (eq system-type 'windows-nt) ".exe" ""))))
+         (a-out (expand-file-name
+                 (if (eq system-type 'windows-nt) "a.exe" "a.out")))
+         (preferred (delq nil (list cached source-exe a-out)))
+         (candidates
+          (append
+           (cl-remove-if-not
+            (lambda (candidate)
+              (and (file-regular-p candidate)
+                   (file-executable-p candidate)))
+            preferred)
+           (cl-remove-if-not
+            (lambda (candidate)
+              (and (file-regular-p candidate)
+                   (file-executable-p candidate)))
+            (file-expand-wildcards "build/*" t)))))
+    (delete-dups candidates)))
+
+(defun my/cpp-debug ()
+  "Debug the current C/C++ program through dap-mode and CodeLLDB.
+Automatically finds the executable: single-file exe first, then project
+build output.  Run `my/cpp-debug-setup' once before the first session."
+  (interactive)
+  (my/debug--require 'dap-codelldb)
+  (unless (and (boundp 'dap-codelldb-debug-program)
+               (stringp dap-codelldb-debug-program)
+               (file-exists-p dap-codelldb-debug-program))
+    (user-error "CodeLLDB adapter not installed; run M-x my/cpp-debug-setup first"))
+  (let* ((candidates (my/cpp--debug-executable-candidates))
+         (exe (cond ((null candidates) nil)
+                    ((= (length candidates) 1) (car candidates))
+                    (t (completing-read "Debug executable: " candidates nil t)))))
+    (unless (and exe (not (string-empty-p exe)))
+      (user-error "No executable found. Compile first with C-c r (single file) or C-c b (project)"))
+    (dap-mode 1)
+    (dap-debug (list :type "lldb"
+                     :request "launch"
+                     :name "C++ (codelldb)"
+                     :program (expand-file-name exe)
+                     :cwd (my/project-root-or-current)))))
+
 (use-package dap-mode
   :commands (dap-mode
              dap-debug
@@ -87,7 +160,10 @@ The Unity editor must have Editor Attaching enabled.  Run
   (when (require 'dap-netcore nil t)
     (when (eq system-type 'windows-nt)
       (setq dap-netcore-download-url my/netcoredbg-windows-download-url)))
-  (require 'dap-unity nil t))
+  (require 'dap-unity nil t)
+  ;; Registers the "lldb" provider only; the adapter binary is downloaded
+  ;; explicitly via `my/cpp-debug-setup'.
+  (require 'dap-codelldb nil t))
 
 (defvar my/debug-command-map
   (let ((map (make-sparse-keymap)))
@@ -95,6 +171,7 @@ The Unity editor must have Editor Attaching enabled.  Run
     (define-key map (kbd "a") #'my/unity-debug-attach)
     (define-key map (kbd "u") #'my/unity-debug-setup)
     (define-key map (kbd "N") #'my/dotnet-debug-setup)
+    (define-key map (kbd "C") #'my/cpp-debug-setup)
     (define-key map (kbd "b") #'dap-breakpoint-toggle)
     (define-key map (kbd "B") #'dap-breakpoint-delete-all)
     (define-key map (kbd "c") #'dap-continue)

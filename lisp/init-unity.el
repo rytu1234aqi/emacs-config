@@ -23,8 +23,8 @@
 (defcustom my/unity-editor-install-roots nil
   "Additional directories containing versioned Unity editor installations.
 
-Each directory is expected to contain VERSION/Editor/Unity.exe.  Unity Hub's
-secondary install directory and the standard Windows locations are searched
+Each directory may contain versioned Unity installations.  Unity Hub's
+secondary install directory and standard macOS/Windows locations are searched
 automatically."
   :type '(repeat directory)
   :group 'my/unity)
@@ -168,25 +168,58 @@ the project directory, and finally the first solution in lexical order."
 
 (defun my/unity--hub-secondary-root ()
   "Return Unity Hub's configured secondary install directory, if any."
-  (when-let* ((appdata (getenv "APPDATA"))
-              (file (expand-file-name
-                     "UnityHub/secondaryInstallPath.json" appdata))
-              ((file-readable-p file)))
-    (condition-case nil
-        (let ((value (json-read-file file)))
-          (and (stringp value) (not (string-empty-p value)) value))
-      (error nil))))
+  (let ((files
+         (delq
+          nil
+          (list
+           (and (getenv "APPDATA")
+                (expand-file-name "UnityHub/secondaryInstallPath.json"
+                                  (getenv "APPDATA")))
+           (expand-file-name
+            "~/Library/Application Support/UnityHub/secondaryInstallPath.json")
+           (expand-file-name "~/.config/UnityHub/secondaryInstallPath.json")))))
+    (cl-loop
+     for file in files
+     when (file-readable-p file)
+     thereis
+     (condition-case nil
+         (let ((value (json-read-file file)))
+           (and (stringp value) (not (string-empty-p value)) value))
+       (error nil)))))
 
 (defun my/unity--editor-roots ()
   "Return existing Unity editor installation roots."
-  (delete-dups
-   (cl-remove-if-not
-    #'file-directory-p
-    (append my/unity-editor-install-roots
-            (list (my/unity--hub-secondary-root)
-                  "C:/Program Files/Unity/Hub/Editor"
-                  "C:/Program Files/Unity/Editor"
-                  "D:/Unity Editor")))))
+  (let ((platform-roots
+         (pcase system-type
+           ('darwin '("/Applications/Unity/Hub/Editor"
+                      "/Applications/Unity"))
+           ('windows-nt '("C:/Program Files/Unity/Hub/Editor"
+                          "C:/Program Files/Unity/Editor"
+                          "D:/Unity Editor"))
+           (_ nil))))
+    (delete-dups
+     (cl-remove-if-not
+      #'file-directory-p
+      (append my/unity-editor-install-roots
+              (list (my/unity--hub-secondary-root))
+              platform-roots)))))
+
+(defun my/unity--editor-candidates (base version)
+  "Return Unity executable candidates below BASE for VERSION."
+  (pcase system-type
+    ('darwin
+     (list (expand-file-name
+            (format "%s/Unity.app/Contents/MacOS/Unity" version) base)
+           (expand-file-name "Unity.app/Contents/MacOS/Unity" base)
+           (expand-file-name "Contents/MacOS/Unity" base)))
+    ('windows-nt
+     (list (expand-file-name (format "%s/Editor/Unity.exe" version) base)
+           (expand-file-name "Editor/Unity.exe" base)
+           (expand-file-name "Unity.exe" base)))
+    (_
+     (list (expand-file-name (format "%s/Editor/Unity" version) base)
+           (expand-file-name "Editor/Unity" base)
+           (expand-file-name "Unity" base)))))
 
 (defun my/unity-editor-executable (&optional root)
   "Return the Unity executable matching project ROOT's required version."
@@ -197,14 +230,11 @@ the project directory, and finally the first solution in lexical order."
                (candidates
                 (cl-mapcan
                  (lambda (base)
-                   (list (expand-file-name
-                          (format "%s/Editor/Unity.exe" version) base)
-                         (expand-file-name "Editor/Unity.exe" base)
-                         (expand-file-name "Unity.exe" base)))
+                   (my/unity--editor-candidates base version))
                  (my/unity--editor-roots))))
           (or (cl-find-if #'file-regular-p candidates)
               (user-error
-               "Unity %s was not found; customize my/unity-editor-install-roots"
+               "Unity %s was not found; set UNITY_EDITOR or customize my/unity-editor-install-roots"
                version))))))
 
 (defun my/unity-open-project ()
@@ -224,9 +254,13 @@ the project directory, and finally the first solution in lexical order."
 
 (defun my/unity-editor-log-file ()
   "Return the platform-specific Unity Editor log path."
-  (if-let ((localappdata (getenv "LOCALAPPDATA")))
-      (expand-file-name "Unity/Editor/Editor.log" localappdata)
-    (expand-file-name "~/Library/Logs/Unity/Editor.log")))
+  (pcase system-type
+    ('windows-nt
+     (expand-file-name "Unity/Editor/Editor.log"
+                       (or (getenv "LOCALAPPDATA")
+                           (expand-file-name "~/AppData/Local"))))
+    ('darwin (expand-file-name "~/Library/Logs/Unity/Editor.log"))
+    (_ (expand-file-name "~/.config/unity3d/Editor.log"))))
 
 (defun my/unity-open-editor-log ()
   "Open the Unity Editor log and follow new output."
@@ -320,14 +354,26 @@ instance before using this command."
   (browse-url "https://docs.unity3d.com/ScriptReference/"))
 
 (defun my/unity--emacsclient-program ()
-  "Return the preferred GUI emacsclient executable."
-  (or (executable-find "emacsclientw.exe")
-      (executable-find "emacsclientw")
-      (executable-find "emacsclient.exe")
-      (let ((candidate (expand-file-name "emacsclientw.exe"
-                                         invocation-directory)))
-        (and (file-regular-p candidate) candidate))
-      "emacsclientw.exe"))
+  "Return the platform-appropriate emacsclient executable."
+  (pcase system-type
+    ('windows-nt
+     (or (executable-find "emacsclientw.exe")
+         (executable-find "emacsclientw")
+         (executable-find "emacsclient.exe")
+         (cl-find-if
+          #'file-regular-p
+          (list (expand-file-name "emacsclientw.exe" invocation-directory)
+                (expand-file-name "bin/emacsclientw.exe"
+                                  invocation-directory)))
+         "emacsclientw.exe"))
+    ('darwin
+     (or (executable-find "emacsclient")
+         (cl-find-if
+          #'file-regular-p
+          (list (expand-file-name "bin/emacsclient" invocation-directory)
+                "/Applications/Emacs.app/Contents/MacOS/bin/emacsclient"))
+         "emacsclient"))
+    (_ (or (executable-find "emacsclient") "emacsclient"))))
 
 (defun my/unity-external-editor-settings ()
   "Show and copy the Unity External Tools settings for Emacs."

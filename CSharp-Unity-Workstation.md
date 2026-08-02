@@ -19,6 +19,9 @@ Server 的能力。
 4. 确保需要的 `.csproj` 类型已勾选，然后执行 `Regenerate project files`。
 
 Emacs 启动时会自动启动 server，Unity 双击脚本后会复用现有 Emacs 实例。
+配置会按项目版本自动查找 macOS 的 `Unity.app` 或 Windows 的 `Unity.exe`；自定义
+安装位置可以在本机 `local.el` 中设置 `UNITY_EDITOR`，示例见
+`local.el.example`。
 
 ## 常用入口
 
