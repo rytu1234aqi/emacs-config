@@ -121,6 +121,43 @@
         (my/eglot-maybe-ensure)
         (should started)))))
 
+(ert-deftest my/cpp-tab-indents-and-dismisses-an-active-corfu-session ()
+  (let (indented)
+    (with-temp-buffer
+      (setq major-mode 'c++-mode)
+      (local-set-key (kbd "TAB") #'my/tab-dwim)
+      (corfu-mode 1)
+      (insert "st")
+      (corfu--in-region-1 (point-min) (point) '("std" "string") nil)
+      (should completion-in-region-mode)
+      (should (eq (key-binding (kbd "TAB")) #'my/corfu-tab-dwim))
+      (cl-letf (((symbol-function 'indent-for-tab-command)
+                 (lambda (&rest _arguments) (setq indented t))))
+        (call-interactively (key-binding (kbd "TAB"))))
+      (should indented)
+      (should-not completion-in-region-mode)
+      (should (equal (buffer-string) "st")))))
+
+(ert-deftest my/tab-keeps-corfu-completion-behavior-outside-cpp ()
+  (let (completed indented)
+    (with-temp-buffer
+      (setq major-mode 'python-mode
+            completion-in-region-mode t)
+      (cl-letf (((symbol-function 'corfu-complete)
+                 (lambda () (interactive) (setq completed t)))
+                ((symbol-function 'indent-for-tab-command)
+                 (lambda (&rest _arguments) (setq indented t))))
+        (my/tab-dwim)))
+    (should completed)
+    (should-not indented)))
+
+(ert-deftest my/corfu-map-routes-both-tab-events-through-dwim ()
+  (require 'corfu)
+  (should (eq (lookup-key corfu-map (kbd "TAB"))
+              #'my/corfu-tab-dwim))
+  (should (eq (lookup-key corfu-map (kbd "<tab>"))
+              #'my/corfu-tab-dwim)))
+
 (ert-deftest my/cpp-debug-prefers-the-cached-standalone-build ()
   (let* ((root (file-name-as-directory
                 (expand-file-name "codex-debug-project"

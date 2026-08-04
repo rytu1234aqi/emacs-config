@@ -106,18 +106,27 @@
 
 (ert-deftest rytu/notion-keychain-store-keeps-token-off-command-line ()
   (let ((token (copy-sequence "test-notion-token"))
-        captured-arguments
-        captured-input)
-    (cl-letf (((symbol-function 'call-process-region)
-               (lambda (start end _program _delete _destination
-                              _display &rest arguments)
-                 (setq captured-arguments arguments
-                       captured-input
-                       (buffer-substring-no-properties start end))
-                 0)))
+        captured-token)
+    (cl-letf (((symbol-function 'rytu/notion--write-keychain-token)
+               (lambda (value)
+                 (setq captured-token (copy-sequence value))))
+              ((symbol-function 'rytu/notion--keychain-token)
+               (lambda () (copy-sequence token))))
       (rytu/notion-store-token-in-keychain token))
-    (should (equal captured-input "test-notion-token\n"))
-    (should-not (member "test-notion-token" captured-arguments))))
+    (should (equal captured-token "test-notion-token"))
+    (should-not
+     (member "test-notion-token" (rytu/notion--keychain-add-command)))
+    (clear-string captured-token)))
+
+(ert-deftest rytu/notion-keychain-store-requires-readback ()
+  (let ((token (copy-sequence "test-notion-token")))
+    (cl-letf (((symbol-function 'rytu/notion--write-keychain-token)
+               (lambda (_value) nil))
+              ((symbol-function 'rytu/notion--keychain-token)
+               (lambda () nil)))
+      (should-error
+       (rytu/notion-store-token-in-keychain token)
+       :type 'user-error))))
 
 (provide 'init-notion-org-test)
 

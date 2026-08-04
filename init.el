@@ -191,15 +191,29 @@
 (declare-function yas-maybe-expand-abbrev-key-filter "yasnippet" (command))
 (declare-function yas-expand "yasnippet")
 (declare-function corfu-complete "corfu")
+(declare-function corfu-quit "corfu")
+
+(defun my/cpp-tab-indentation-mode-p ()
+  "Return non-nil when TAB should remain an indentation command."
+  (derived-mode-p 'c-mode 'c-ts-mode 'c++-mode 'c++-ts-mode))
 
 (defun my/tab-dwim ()
   "Accept completion, expand a snippet, or indent at a logical tab stop.
 
-When Corfu is visible, accept its selected candidate like a modern IDE.  In an
-active Yasnippet, move to the next field; otherwise try snippet expansion.  C#
-buffers insert spaces up to the next logical indentation stop; other modes
-retain their normal syntax-aware indentation."
+In C/C++, dismiss an active completion before handling TAB so completion never
+steals syntax-aware indentation.  Other modes accept the selected Corfu
+candidate.  In an active Yasnippet, move to the next field; otherwise try
+snippet expansion.  C# buffers insert spaces up to the next logical indentation
+stop; other modes retain their normal syntax-aware indentation."
   (interactive)
+  ;; Corfu installs an overriding keymap while completion is active.  The
+  ;; corresponding TAB command delegates here for C/C++; terminate that session
+  ;; before the normal snippet/indentation decision.
+  (when (and (my/cpp-tab-indentation-mode-p)
+             (bound-and-true-p completion-in-region-mode))
+    (if (fboundp 'corfu-quit)
+        (corfu-quit)
+      (completion-in-region-mode -1)))
   (cond
    ((and (bound-and-true-p completion-in-region-mode)
          (fboundp 'corfu-complete))
@@ -226,12 +240,19 @@ retain their normal syntax-aware indentation."
           (insert (make-string spaces ?\s)))
       (indent-for-tab-command)))))
 
+(defun my/corfu-tab-dwim ()
+  "Indent C/C++ or accept the selected Corfu candidate in other modes."
+  (interactive)
+  (if (my/cpp-tab-indentation-mode-p)
+      (call-interactively #'my/tab-dwim)
+    (call-interactively #'corfu-complete)))
+
 (use-package corfu
   :hook ((prog-mode . corfu-mode)
          (text-mode . corfu-mode))
   :bind (:map corfu-map
-              ("TAB" . corfu-complete)
-              ("<tab>" . corfu-complete))
+              ("TAB" . my/corfu-tab-dwim)
+              ("<tab>" . my/corfu-tab-dwim))
   :custom
   (corfu-auto t)
   (corfu-cycle t)
@@ -1014,7 +1035,7 @@ subdirectory."
   (local-set-key (kbd "C-c l s") #'my/cpp-toggle-format-on-save)
   (local-set-key (kbd "C-c l i") #'eglot-inlay-hints-mode)
   (local-set-key (kbd "C-c l ?") #'my/cpp-doctor)
-  ;; 与 C# 一致：弹窗可见时 TAB 接受补全，否则 snippet/语法缩进。
+  ;; C/C++ 的 TAB 始终用于 snippet/语法缩进；RET 接受 Corfu 候选。
   (local-set-key (kbd "TAB") #'my/tab-dwim)
   (local-set-key (kbd "<tab>") #'my/tab-dwim)
   (setq-local comment-start "// ")

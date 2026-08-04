@@ -180,13 +180,14 @@ Tab 字符。
 | --- | --- |
 | 上、下方向键 | 选择候选 |
 | `M-n` / `M-p` | 下一个 / 上一个候选 |
-| `TAB` | 完成并接受当前候选 |
+| `TAB` | C# 等模式接受候选；C/C++ 关闭候选并执行缩进 |
 | `RET` | 插入当前候选 |
 | `C-g` | 关闭补全 |
 | `M-TAB` 或 `C-M-i` | 手动请求当前位置补全 |
 
 Windows 通常会拦截 `Alt+Tab`，所以手动补全优先使用 `C-M-i`，也就是
 `Ctrl+Alt+i`。候选旁会显示类型图标；停留约 0.65 秒后显示候选文档。
+C/C++ 特意保留 TAB 给语法缩进和 Snippet；在候选列表中使用 `RET` 接受选项。
 
 ### 跳转和查找引用
 
@@ -252,6 +253,9 @@ Ninja，其中 Ninja 用于生成 clangd 所需的 `compile_commands.json`。常
 | `C-c d` | 用 CodeLLDB 调试当前程序 |
 | `C-c l ?` | 查看编译器、clangd、Tree-sitter、CMake 和调试器状态 |
 | `M-x my/cpp-debug-setup` | 首次下载当前系统对应的 CodeLLDB |
+
+C/C++ 中即使 Corfu 候选正在显示，`TAB` 也会先关闭候选再执行缩进；使用 `RET`
+接受当前候选，或使用 `C-M-i` 主动请求补全。
 
 ## 10. Flymake 诊断
 

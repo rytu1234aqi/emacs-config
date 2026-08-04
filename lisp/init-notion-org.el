@@ -79,6 +79,11 @@ the Agenda before they have been deliberately classified in Notion."
   :type 'integer
   :group 'rytu-notion)
 
+(defcustom rytu/notion-keychain-write-timeout 10
+  "Seconds to wait while securely writing a token to macOS Keychain."
+  :type 'integer
+  :group 'rytu-notion)
+
 (defconst rytu/notion--status-order
   '(("DOING" . 0)
     ("NEXT" . 1)
@@ -472,6 +477,64 @@ Return non-nil when the file changed."
   (when (derived-mode-p 'org-agenda-mode)
     (org-agenda-redo)))
 
+(defun rytu/notion--keychain-add-command ()
+  "Return the command used to add a prompted macOS Keychain password."
+  (list "/usr/bin/security"
+        "add-generic-password"
+        "-U"
+        "-a" rytu/notion-keychain-account
+        "-s" rytu/notion-keychain-service
+        "-w"))
+
+(defun rytu/notion--write-keychain-token (token)
+  "Write TOKEN through a pseudo-terminal without exposing it in arguments."
+  (let* ((output (generate-new-buffer " *Notion Keychain Write*"))
+         (deadline (+ (float-time) rytu/notion-keychain-write-timeout))
+         (scan-position 1)
+         (prompt-count 0)
+         process)
+    (unwind-protect
+        (progn
+          ;; `security ... -w' uses getpass-style terminal prompting.  Feeding
+          ;; stdin through `call-process-region' creates an empty password even
+          ;; though the command exits successfully, so it must run on a PTY.
+          (setq process
+                (make-process
+                 :name "notion-keychain-write"
+                 :buffer output
+                 :command (rytu/notion--keychain-add-command)
+                 :connection-type 'pty
+                 :noquery t))
+          (while (and (process-live-p process)
+                      (< (float-time) deadline))
+            (accept-process-output process 0.05)
+            (with-current-buffer output
+              (save-excursion
+                (goto-char scan-position)
+                (while (re-search-forward
+                        "\\(?:password data\\|retype password\\)[^:\r\n]*:"
+                        nil t)
+                  (setq scan-position (point)
+                        prompt-count (1+ prompt-count))
+                  (when (> prompt-count 2)
+                    (user-error "Keychain requested the token too many times"))
+                  (process-send-string process token)
+                  (process-send-string process "\n")))))
+          (when (process-live-p process)
+            (delete-process process)
+            (user-error "Keychain write timed out"))
+          (unless (zerop (process-exit-status process))
+            (user-error "Keychain rejected the token (status %d)"
+                        (process-exit-status process)))
+          (unless (> prompt-count 0)
+            (user-error "Keychain did not request the token")))
+      (when (and process (process-live-p process))
+        (delete-process process))
+      (when (buffer-live-p output)
+        (with-current-buffer output
+          (erase-buffer))
+        (kill-buffer output)))))
+
 ;;;###autoload
 (defun rytu/notion-store-token-in-keychain (token)
   "Securely store Notion TOKEN in the current macOS user's Keychain."
@@ -481,29 +544,19 @@ Return non-nil when the file changed."
     (user-error "macOS Keychain is not available"))
   (when (string-empty-p token)
     (user-error "The token cannot be empty"))
-  (let ((output (generate-new-buffer " *Notion Keychain*")))
-    (unwind-protect
-        (with-temp-buffer
-          (insert token "\n")
-          (let ((status
-                 (call-process-region
-                  (point-min) (point-max)
-                  "/usr/bin/security"
-                  t output nil
-                  "add-generic-password"
-                  "-U"
-                  "-a" rytu/notion-keychain-account
-                  "-s" rytu/notion-keychain-service
-                  "-w")))
-            (unless (zerop status)
-              (user-error
-               "Keychain rejected the token: %s"
-               (with-current-buffer output
-                 (string-trim (buffer-string)))))
-            (message "Notion token stored securely in macOS Keychain")))
-      (when (buffer-live-p output)
-        (kill-buffer output))
-      (clear-string token))))
+  (unwind-protect
+      (progn
+        (rytu/notion--write-keychain-token token)
+        (let ((stored-token (rytu/notion--keychain-token)))
+          (unwind-protect
+              (unless (and stored-token
+                           (string= token stored-token))
+                (user-error
+                 "Keychain write could not be verified; token was not stored"))
+            (when (stringp stored-token)
+              (clear-string stored-token))))
+        (message "Notion token stored securely in macOS Keychain"))
+    (clear-string token)))
 
 ;;;###autoload
 (defun rytu/notion-pull-tasks ()
